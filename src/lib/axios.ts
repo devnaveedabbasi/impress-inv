@@ -1,0 +1,49 @@
+import axios from "axios";
+import Cookies from "js-cookie";
+const axiosInstance = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL + '/api'  // local: direct
+    : '/api/proxy',                                    // production: proxy
+  headers: {
+    "Content-Type": "application/json",
+  },
+  withCredentials: true,
+});
+
+// Request interceptor — token automatic
+axiosInstance.interceptors.request.use(
+  (config) => {
+    if (typeof window !== "undefined") {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// FormData interceptor — Content-Type automatic
+axiosInstance.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    config.headers["Content-Type"] = "multipart/form-data";
+  }
+  return config;
+});
+
+// Response interceptor
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.dispatchEvent(
+        new CustomEvent("unauthorized", { detail: { redirect: "/auth/login" } })
+      );
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default axiosInstance;
