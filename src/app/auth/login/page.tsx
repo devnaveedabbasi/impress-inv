@@ -12,54 +12,33 @@ import { Button } from "@/components/ui/Button";
 import { loginSchema } from "@/lib/validations/auth";
 import { useForm } from "@/hooks/useForm";
 import { Images } from "@/utlis/images";
-import { useMutation } from "@tanstack/react-query";
 import api from "@/lib/axios";
 import { LOGIN } from "@/utlis/apiRoutes";
-import Cookies from "js-cookie";
-import toast from "react-hot-toast";
 
 export default function LoginPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-
-  const loginMutation = useMutation({
-    // Yeh "try" block hai (API call yahan hoti hai)
-    mutationFn: async (credentials: Record<string, any>) => {
-      const { data } = await api.post(LOGIN, credentials);
-      return data.data;
-    },
-    // Yeh try ke andar success hone ke baad ka code hai
-    onSuccess: (data) => {
-      Cookies.set("token", data.token, { expires: 7 });
-      dispatch(setCredentials({ user: data.user, token: data.token }));
-      toast.success("Login Successful!");
-      router.push("/");
-    },
-    // Yeh "catch" block hai (Error aane par yeh chalta hai)
-    onError: (error: any) => {
-      const errorMessage = error.response?.data?.message || "Login failed";
-      toast.error(errorMessage);
-      console.error("Error:", errorMessage);
-    }
-  });
-
   const {
     values,
     errors,
+    message: error,
+    isLoading,
     handleInputChange,
     handleSubmit,
   } = useForm({
     initialValues: { email: "", password: "" },
     validationSchema: loginSchema,
+    successMessage: "", // Prevent "Success" text from appearing in the error box
     onSubmit: async (data) => {
-      await loginMutation.mutateAsync(data);
+      const response = await api.post(LOGIN, data);
+      const resData = response.data.data;
+      localStorage.setItem("token", resData.token);
+      dispatch(setCredentials({ user: resData.user, token: resData.token }));
+
+      // Use window.location.href to guarantee a full navigation to home so AuthGuard can run fresh
+      window.location.href = "/";
     },
   });
-
-  const isLoading = loginMutation.isPending;
-  const error = loginMutation.isError
-    ? (loginMutation.error as any).response?.data?.message || (loginMutation.error as Error).message || "Login failed"
-    : null;
 
   return (
     <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl sm:p-10">

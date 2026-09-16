@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon } from "@iconify/react";
 import { NAV_ITEMS, type NavItem } from "./nav-items";
 import { ProfileDropdown } from "./ProfileDropdown";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const MENU_WIDTH = 224;
 
@@ -78,6 +79,32 @@ export function Navbar() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [menuSide, setMenuSide] = useState<"left" | "right">("left");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const { hasPermission } = usePermissions();
+
+  const filterNavItems = (items: NavItem[]): NavItem[] => {
+    return items
+      .map(item => {
+        if (item.children) {
+          const filteredChildren = filterNavItems(item.children);
+          return { ...item, children: filteredChildren };
+        }
+        return item;
+      })
+      .filter(item => {
+        // If it has children, only keep it if it has at least one visible child
+        if (item.children) {
+          return item.children.length > 0;
+        }
+        // If it's a leaf node with an operation, check permission
+        if (item.operation) {
+          return hasPermission(item.operation, "view");
+        }
+        // Keep if no operation is defined (fallback)
+        return true;
+      });
+  };
+
+  const filteredNavItems = filterNavItems(NAV_ITEMS);
 
   const handleMenuOpen = (
     label: string,
@@ -98,7 +125,7 @@ export function Navbar() {
       <nav className="flex max-w-full flex-wrap items-center justify-between px-4 py-2">
         {/* Left side Nav Items */}
         <div className="flex flex-wrap items-center gap-1 overflow-x-clip">
-          {NAV_ITEMS.map((item) =>
+          {filteredNavItems.map((item) =>
             item.children?.length ? (
               <div
                 key={item.label}

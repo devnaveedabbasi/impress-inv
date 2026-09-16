@@ -24,6 +24,7 @@ export interface SelectProps {
   wrapperClassName?: string;
   placement?: "top" | "bottom";
   inline?: boolean;
+  lockedValues?: string[];
 }
 
 export function Select({
@@ -42,6 +43,7 @@ export function Select({
   wrapperClassName,
   placement = "bottom",
   inline = false,
+  lockedValues = [],
 }: SelectProps) {
   const generatedId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export function Select({
   const [search, setSearch] = useState("");
 
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
-  const selectedOptions = options.filter((o) => selectedValues.includes(o.value));
+  const selectedOptions = options.filter((o) => selectedValues.includes(o.value) || lockedValues.includes(o.value));
 
   const filteredOptions = options.filter((o) => {
     const searchLower = search.trim().toLowerCase();
@@ -83,6 +85,7 @@ export function Select({
       setIsOpen(false);
       return;
     }
+    if (lockedValues.includes(optionValue)) return;
     const next = selectedValues.includes(optionValue)
       ? selectedValues.filter((v) => v !== optionValue)
       : [...selectedValues, optionValue];
@@ -90,7 +93,7 @@ export function Select({
   }
 
   function toggleAll() {
-    onChange?.(allSelected ? [] : options.map((o) => o.value));
+    onChange?.(allSelected ? [] : options.filter(o => !lockedValues.includes(o.value)).map((o) => o.value));
   }
 
   const displayValue = multiple
@@ -132,7 +135,8 @@ export function Select({
       >
         {filteredOptions.length ? (
           filteredOptions.map((option, index) => {
-            const selected = selectedValues.includes(option.value);
+            const isLocked = lockedValues.includes(option.value);
+            const selected = selectedValues.includes(option.value) || isLocked;
             const showGroup = option.group && (index === 0 || filteredOptions[index - 1]?.group !== option.group);
 
             return (
@@ -149,7 +153,8 @@ export function Select({
                   onClick={() => toggleOption(option.value)}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-primary-50 hover:text-primary-700",
-                    selected ? "bg-primary-50 text-primary-700" : "text-zinc-700"
+                    selected ? "bg-primary-50 text-primary-700" : "text-zinc-700",
+                    isLocked ? "opacity-60 cursor-not-allowed bg-primary-50 hover:bg-primary-50" : ""
                   )}
                 >
                   {multiple && (
@@ -157,7 +162,10 @@ export function Select({
                       {selected && <Icon icon="mdi:check" className="h-3 w-3" />}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                    {isLocked && <span className="ml-2 text-xs text-primary-600">(Role Inherited)</span>}
+                  </span>
                   {!multiple && selected && <Icon icon="mdi:check" className="h-4 w-4 text-primary-600" />}
                 </button>
               </React.Fragment>

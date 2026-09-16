@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Icon } from "@iconify/react";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
 import api from "@/lib/axios";
 import { LOGOUT } from "@/utlis/apiRoutes";
 import toast from "react-hot-toast";
@@ -34,25 +33,17 @@ export function ProfileDropdown({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post(LOGOUT);
-      return data;
-    },
-    onSuccess: () => {
+  const handleLogout = async () => {
+    try {
+      await api.post(LOGOUT);
       dispatch(logoutUser());
       toast.success("Logged out successfully");
       router.push("/auth/login");
-    },
-    onError: (error: any) => {
+    } catch (error: any) {
       const errorMessage = error.response?.data?.message || "Logout failed";
       toast.error(errorMessage);
       console.error("Logout Error:", errorMessage);
     }
-  });
-
-  const handleLogout = () => {
-    logoutMutation.mutate();
   };
 
   return (

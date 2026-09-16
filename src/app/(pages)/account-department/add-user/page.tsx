@@ -1,40 +1,40 @@
 "use client";
-
-import { FormEvent, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@iconify/react";
-import { isAxiosError } from "axios";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import api from "@/lib/axios";
 import { userSchema } from "@/lib/validations/account";
-import { z } from "zod";
 import { Button } from "@/components/ui/Button";
-
 import { useForm } from "@/hooks/useForm";
-import { useQuery } from "@tanstack/react-query";
 
-import { useEffect } from "react";
 import toast from "react-hot-toast";
 import { ROLES, USERS, PERMISSIONS } from "@/utlis/apiRoutes";
 
 const initialValues = { name: "", email: "", password: "", role: "", permissionIds: [] as string[] };
 
 export default function AddUserPage() {
-  const { data: rolesData, isLoading: isRolesLoading } = useQuery({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const { data } = await api.get(ROLES);
-      return data.data;
-    },
-  });
+  const [rolesData, setRolesData] = useState<any[]>([]);
+  const [isRolesLoading, setIsRolesLoading] = useState(true);
+  const [permissionsData, setPermissionsData] = useState<any>(null);
 
-  const { data: permissionsData } = useQuery({
-    queryKey: ["permissions"],
-    queryFn: async () => {
-      const { data } = await api.get(PERMISSIONS);
-      return data.data;
-    },
-  });
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [rolesRes, permsRes] = await Promise.all([
+          api.get(ROLES),
+          api.get(PERMISSIONS)
+        ]);
+        setRolesData(rolesRes.data.data);
+        setPermissionsData(permsRes.data.data);
+      } catch (error) {
+        console.error("Failed to fetch data", error);
+      } finally {
+        setIsRolesLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const roleOptions = [
     { label: "Select a role", value: "" },
@@ -62,10 +62,8 @@ export default function AddUserPage() {
         name: data.name,
         email: data.email,
         password: data.password,
-        role: {
-          name: data.role,
-          permissionIds: data.permissionIds.map(Number),
-        },
+        roleId: data.role,
+        permissionIds: data.permissionIds.map(Number),
       });
       toast.success(response.data.message || "User created successfully");
     } catch (error: any) {
@@ -86,7 +84,7 @@ export default function AddUserPage() {
   } = useForm({
     initialValues,
     validationSchema: userSchema,
-    successMessage: "User created successfully.",
+    successMessage: "",
     onSubmit: handleCreateUser,
   });
 
@@ -147,12 +145,13 @@ export default function AddUserPage() {
           isSearch
           multiple
           showSelectAll
-          placement="top"
-          placeholder="Select permissions"
+          inline
+          placeholder="Select Extra Permissions (Optional)"
           icon={<Icon icon="mdi:shield-account-outline" />}
           value={values.permissionIds}
+          lockedValues={rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || []}
           onChange={handleSelectChange("permissionIds")}
-          error={errors.permissionIds}
+          error={errors.permissionIds as string | undefined}
         />
 
         <div className="flex items-center gap-3 pt-2">

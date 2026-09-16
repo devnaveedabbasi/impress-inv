@@ -6,15 +6,24 @@ import { Images } from "@/utlis/images";
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div
-      className="flex min-h-screen h-auto flex-col bg-zinc-100 bg-cover bg-center bg-fixed"
+      className="min-h-screen bg-zinc-100 bg-cover bg-center bg-fixed"
       style={{ backgroundImage: `url('${Images.Background}')` }}
     >
       <Navbar />
-      <main className="flex flex-1 justify-center px-4 py-8">
-        <div className="absolute top-10 left-0 m-4">
-          <Image src={Images.Logo} alt="Logo" width={100} height={100} />
+
+      <main className="relative min-h-[calc(100vh-57px)] px-4 py-8">
+        <div className="absolute left-0 top-10 m-4">
+          <Image
+            src={Images.Logo}
+            alt="Logo"
+            width={100}
+            height={100}
+          />
         </div>
-        <div className="w-full max-w-7x flex justify-center items-center">{children}</div>
+
+        <div className="mx-auto flex w-full max-w-7xl justify-center">
+          {children}
+        </div>
       </main>
     </div>
   );

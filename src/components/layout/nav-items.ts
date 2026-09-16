@@ -2,74 +2,84 @@ export interface NavItem {
   label: string;
   href?: string;
   children?: NavItem[];
+  operation?: string;
 }
 
 export const NAV_ITEMS: NavItem[] = [
   {
     label: "Master Enter Registration",
     children: [
-      { label: "Category", href: "/master/categories" },
-      { label: "City", href: "/master/cities" },
-      { label: "Province", href: "/master/provinces" },
-      { label: "Station", href: "/master/stations" },
-      { label: "Dealer", href: "/master/dealers" },
-      { label: "Vendor", href: "/master/vendors" },
-      { label: "Department", href: "/master/departments" },
-      { label: "Account Code", href: "/master/account-codes" },
+      { label: "Category", href: "/master-entries/categories", operation: "category" },
+      { label: "City", href: "/master-entries/cities", operation: "city" },
+      { label: "Province", href: "/master-entries/provinces", operation: "province" },
+      { label: "Station", href: "/master-entries/stations", operation: "station" },
+      { label: "Dealer", href: "/master-entries/dealers", operation: "dealer" },
+      { label: "Vendor", href: "/master-entries/vendors", operation: "vendor" },
+      { label: "Department", href: "/master/departments", operation: "department" },
+      { label: "Account Code", href: "/master/account-codes", operation: "account_code" },
     ],
   },
   {
     label: "Store Department",
     children: [
-      { label: "Inward Quality Control", href: "/store/inward-quality-control" },
-      { label: "Inward Quality Control Report", href: "/store/inward-quality-control-report" },
-      { label: "Gate Pass for Sold Item", href: "/store/gate-pass-sold-item" },
-      { label: "Rejection Return to Vendor", href: "/store/rejection-return-to-vendor" },
-      { label: "Rejection Received from Dealer", href: "/store/rejection-received-from-dealer" },
-      { label: "Issue from Line", href: "/store/issue-from-line" },
-      { label: "Item Return from Department", href: "/store/item-return-from-department" },
-      { label: "Transfer Form", href: "/store/transfer-form" },
+      { label: "Inward Quality Control", href: "/store/inward-quality-control", operation: "inward_quality_control" },
+      { label: "Inward Quality Control Report", href: "/store/inward-quality-control-report", operation: "inward_quality_control_report" },
+      { label: "Gate Pass for Sold Item", href: "/store/gate-pass-sold-item", operation: "gate_pass_sold_item" },
+      { label: "Rejection Return to Vendor", href: "/store/rejection-return-to-vendor", operation: "rejection_return_to_vendor" },
+      { label: "Rejection Received from Dealer", href: "/store/rejection-received-from-dealer", operation: "rejection_received_from_dealer" },
+      { label: "Issue from Line", href: "/store/issue-from-line", operation: "issue_from_line" },
+      { label: "Item Return from Department", href: "/store/item-return-from-department", operation: "item_return_from_department" },
+      { label: "Transfer Form", href: "/store/transfer-form", operation: "transfer_form" },
       {
         label: "Report",
         children: [
-          { label: "Issue Report", href: "/store/reports/issue" },
-          { label: "Stock Ledger", href: "/store/reports/stock-ledger" },
-          { label: "Item Ledger", href: "/store/reports/item-ledger" },
-          { label: "Stock Register", href: "/store/reports/stock-register" },
-          { label: "Shortage Report", href: "/store/reports/shortage" },
+          { label: "Issue Report", href: "/store/reports/issue", operation: "issue_report" },
+          { label: "Stock Ledger", href: "/store/reports/stock-ledger", operation: "stock_ledger" },
+          { label: "Item Ledger", href: "/store/reports/item-ledger", operation: "item_ledger" },
+          { label: "Stock Register", href: "/store/reports/stock-register", operation: "stock_register" },
+          { label: "Shortage Report", href: "/store/reports/shortage", operation: "shortage_report" },
         ],
       },
     ],
   },
-  { label: "Purchase Department", 
-   children: [
-    { label: "Purchase Order", href: "/purchase/purchase-order" },
-    { label: "Purchase Invoice", href: "/purchase/purchase-invoice" },
-  ] },
-  { label: "Paint Shop Dept", children: [
-    { label: "Paint Shop Inward", href: "/paint-shop/paint-shop-inward" },
-    { label: "Paint Shop Outward", href: "/paint-shop/paint-shop-outward" },
-  ] },
-  { label: "Dispatch Department", children: [
-    { label: "Dispatch Inward", href: "/dispatch/dispatch-inward" },
-    { label: "Dispatch Outward", href: "/dispatch/dispatch-outward" },
-  ] },
-  { label: "Sales Department", children: [
-    { label: "Sales Order", href: "/sales/sales-order" },
-    { label: "Sales Invoice", href: "/sales/sales-invoice" },
-  ] },
+  {
+    label: "Purchase Department",
+    children: [
+      { label: "Purchase Order", href: "/purchase/purchase-order", operation: "purchase_order" },
+      { label: "Purchase Invoice", href: "/purchase/purchase-invoice", operation: "purchase_invoice" },
+    ]
+  },
+  {
+    label: "Paint Shop Dept", children: [
+      { label: "Paint Shop Inward", href: "/paint-shop/paint-shop-inward", operation: "paint_shop_inward" },
+      { label: "Paint Shop Outward", href: "/paint-shop/paint-shop-outward", operation: "paint_shop_outward" },
+    ]
+  },
+  {
+    label: "Dispatch Department", children: [
+      { label: "Dispatch Inward", href: "/dispatch/dispatch-inward", operation: "dispatch_inward" },
+      { label: "Dispatch Outward", href: "/dispatch/dispatch-outward", operation: "dispatch_outward" },
+    ]
+  },
+  {
+    label: "Sales Department", children: [
+      { label: "Sales Order", href: "/sales/sales-order", operation: "sales_order" },
+      { label: "Sales Invoice", href: "/sales/sales-invoice", operation: "sales_invoice" },
+    ]
+  },
   {
     label: "Account Department",
     children: [
-      { label: "Users", href: "/account-department/add-user" },
-      { label: "Roles", href: "/account-department/add-role" },
-      { label: "Permissions", href: "/account-department/permissions" },
+      { label: "Users", href: "/account-department/add-user", operation: "user" },
+      { label: "Roles", href: "/account-department/add-role", operation: "role" },
+      { label: "Permissions", href: "/account-department/permissions", operation: "permission" },
     ],
   },
-  { label: "Window",
+  {
+    label: "Window",
     children: [
       { label: "Window 1", href: "/window/window1" },
       { label: "Window 2", href: "/window/window2" },
     ],
-   },
+  },
 ];

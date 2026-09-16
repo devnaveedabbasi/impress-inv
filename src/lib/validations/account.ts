@@ -5,6 +5,7 @@ export const roleSchema = z.object({
     .min(2, "Role name must be at least 2 characters")
     .max(50, "Role name is too long")
     .regex(/^[a-zA-Z\s]+$/, "Role name can only contain letters and spaces"),
+  permissionIds: z.array(z.string()).min(1, "Select at least one permission"),
 });
 
 export const userSchema = z.object({
