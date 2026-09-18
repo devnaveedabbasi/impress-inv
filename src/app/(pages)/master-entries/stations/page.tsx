@@ -1,29 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Icon } from "@iconify/react";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
-import { provinceSchema, type ProvinceFormValues } from "@/lib/validations/master";
-import { PROVINCES } from "@/utlis/apiRoutes";
+import { stationSchema, type StationFormValues } from "@/lib/validations/master";
+import { STATIONS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 
-const initialValues: ProvinceFormValues = {
+const initialValues: StationFormValues = {
     id: "",
     name: "",
 };
 
-export default function ProvincePage() {
-    const router = useRouter();
+export default function StationPage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
 
     const fetchNextId = async () => {
         try {
-            const { data } = await api.get(`${PROVINCES}/next-id`);
+            const { data } = await api.get(`${STATIONS}/next-id`);
             setValues({ id: String(data.data.nextId), name: "" });
             setIsNewMode(true);
             setIsEditing(true);
@@ -45,19 +42,19 @@ export default function ProvincePage() {
         setValues,
     } = useForm({
         initialValues,
-        validationSchema: provinceSchema,
+        validationSchema: stationSchema,
         onSubmit: async (data) => {
             try {
                 if (isNewMode) {
-                    const response = await api.post(PROVINCES, { name: data.name });
-                    toast.success(response.data.message || "Province created successfully");
+                    const response = await api.post(STATIONS, { name: data.name });
+                    toast.success(response.data.message || "Station created successfully");
                 } else {
-                    const response = await api.put(`${PROVINCES}/${data.id}`, { name: data.name });
-                    toast.success(response.data.message || "Province updated successfully");
+                    const response = await api.put(`${STATIONS}/${data.id}`, { name: data.name });
+                    toast.success(response.data.message || "Station updated successfully");
                 }
                 fetchNextId();
             } catch (error: any) {
-                toast.error(error.response?.data?.message || "Failed to save province");
+                toast.error(error.response?.data?.message || "Failed to save station");
                 throw error;
             }
         },
@@ -67,19 +64,19 @@ export default function ProvincePage() {
         if (!values.id) return;
 
         try {
-            const { data } = await api.get(`${PROVINCES}/${values.id}`);
+            const { data } = await api.get(`${STATIONS}/${values.id}`);
             if (data.data) {
                 setValues({ id: String(data.data.id), name: data.data.name });
                 setIsNewMode(false);
                 setIsEditing(false);
-                toast.success("Province found");
+                toast.success("Station found");
             } else {
-                toast.error("Province not found");
+                toast.error("Station not found");
                 setValues({ ...values, name: "" });
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Province ID");
+            toast.error("Invalid Station ID");
             setValues({ ...values, name: "" });
             setIsNewMode(true);
         }
@@ -87,19 +84,19 @@ export default function ProvincePage() {
 
     return (
         <section className="mx-auto mt-10 w-full max-w-110 bg-form-bg p-6 shadow-xl sm:p-8">
-            <h1 className="mb-6 text-center text-2xl font-bold text-zinc-900 sm:text-3xl">Province Entry</h1>
+            <h1 className="mb-6 text-center text-2xl font-bold text-zinc-900 sm:text-3xl">Station Entry</h1>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-3">
                 <LabeledField
                     type="number"
-                    label="Province ID"
+                    label="Station ID"
                     value={values.id || ""}
                     onChange={handleInputChange("id")}
                     onBlur={handleIdBlur}
                     error={errors.id}
                 />
                 <LabeledField
-                    label="Province Name"
+                    label="Station Name"
                     value={values.name}
                     onChange={handleInputChange("name")}
                     error={errors.name}

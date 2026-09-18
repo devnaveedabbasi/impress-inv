@@ -15,7 +15,8 @@ export const NAV_ITEMS: NavItem[] = [
       { label: "Station", href: "/master-entries/stations", operation: "station" },
       { label: "Dealer", href: "/master-entries/dealers", operation: "dealer" },
       { label: "Vendor", href: "/master-entries/vendors", operation: "vendor" },
-      { label: "Department", href: "/master/departments", operation: "department" },
+      { label: "Department", href: "/master-entries/departments", operation: "department" },
+      { label: "Inventory", href: "/master-entries/inventory", operation: "inventory" },
       { label: "Account Code", href: "/master/account-codes", operation: "account_code" },
     ],
   },
@@ -65,6 +66,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Sales Department", children: [
       { label: "Sales Order", href: "/sales/sales-order", operation: "sales_order" },
       { label: "Sales Invoice", href: "/sales/sales-invoice", operation: "sales_invoice" },
+      { label: "Quotation", href: "/sales/quotation", operation: "quotation" },
     ]
   },
   {

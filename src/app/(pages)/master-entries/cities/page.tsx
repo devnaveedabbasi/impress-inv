@@ -2,29 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Icon } from "@iconify/react";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
+import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { useForm } from "@/hooks/useForm";
-import { provinceSchema, type ProvinceFormValues } from "@/lib/validations/master";
-import { PROVINCES } from "@/utlis/apiRoutes";
+import { citySchema, type CityFormValues } from "@/lib/validations/master";
+import { CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 
-const initialValues: ProvinceFormValues = {
+const initialValues: CityFormValues = {
     id: "",
     name: "",
+    provinceId: "",
 };
 
-export default function ProvincePage() {
+export default function CityPage() {
     const router = useRouter();
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
+    const [provinces, setProvinces] = useState<{ label: string, value: string }[]>([]);
 
     const fetchNextId = async () => {
         try {
-            const { data } = await api.get(`${PROVINCES}/next-id`);
-            setValues({ id: String(data.data.nextId), name: "" });
+            const { data } = await api.get(`${CITIES}/next-id`);
+            setValues({ id: String(data.data.nextId), name: "", provinceId: "" });
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
@@ -32,8 +34,25 @@ export default function ProvincePage() {
         }
     };
 
+    const fetchProvinces = async () => {
+        try {
+            const { data } = await api.get(PROVINCES);
+            if (data.data) {
+                const options = data.data.map((p: any) => ({
+                    label: p.name,
+                    value: String(p.id)
+                }));
+                setProvinces(options);
+            }
+        } catch (error) {
+            console.error("Failed to fetch provinces", error);
+            toast.error("Failed to load provinces");
+        }
+    };
+
     useEffect(() => {
         fetchNextId();
+        fetchProvinces();
     }, []);
 
     const {
@@ -41,23 +60,24 @@ export default function ProvincePage() {
         errors,
         isLoading: isSubmitting,
         handleInputChange,
+        handleSelectChange,
         handleSubmit,
         setValues,
     } = useForm({
         initialValues,
-        validationSchema: provinceSchema,
+        validationSchema: citySchema,
         onSubmit: async (data) => {
             try {
                 if (isNewMode) {
-                    const response = await api.post(PROVINCES, { name: data.name });
-                    toast.success(response.data.message || "Province created successfully");
+                    const response = await api.post(CITIES, { name: data.name, provinceId: Number(data.provinceId) });
+                    toast.success(response.data.message || "City created successfully");
                 } else {
-                    const response = await api.put(`${PROVINCES}/${data.id}`, { name: data.name });
-                    toast.success(response.data.message || "Province updated successfully");
+                    const response = await api.put(`${CITIES}/${data.id}`, { name: data.name, provinceId: Number(data.provinceId) });
+                    toast.success(response.data.message || "City updated successfully");
                 }
                 fetchNextId();
             } catch (error: any) {
-                toast.error(error.response?.data?.message || "Failed to save province");
+                toast.error(error.response?.data?.message || "Failed to save city");
                 throw error;
             }
         },
@@ -67,43 +87,57 @@ export default function ProvincePage() {
         if (!values.id) return;
 
         try {
-            const { data } = await api.get(`${PROVINCES}/${values.id}`);
+            const { data } = await api.get(`${CITIES}/${values.id}`);
             if (data.data) {
-                setValues({ id: String(data.data.id), name: data.data.name });
+                setValues({ 
+                    id: String(data.data.id), 
+                    name: data.data.name,
+                    provinceId: String(data.data.provinceId)
+                });
                 setIsNewMode(false);
                 setIsEditing(false);
-                toast.success("Province found");
+                toast.success("City found");
             } else {
-                toast.error("Province not found");
-                setValues({ ...values, name: "" });
+                toast.error("City not found");
+                // Clear fields but keep the ID they typed
+                setValues({ ...values, name: "", provinceId: "" });
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Province ID");
-            setValues({ ...values, name: "" });
+            toast.error("Invalid City ID");
+            setValues({ ...values, name: "", provinceId: "" });
             setIsNewMode(true);
         }
     };
 
     return (
         <section className="mx-auto mt-10 w-full max-w-110 bg-form-bg p-6 shadow-xl sm:p-8">
-            <h1 className="mb-6 text-center text-2xl font-bold text-zinc-900 sm:text-3xl">Province Entry</h1>
+            <h1 className="mb-6 text-center text-2xl font-bold text-zinc-900 sm:text-3xl">City Entry</h1>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-3">
                 <LabeledField
                     type="number"
-                    label="Province ID"
+                    label="City ID"
                     value={values.id || ""}
                     onChange={handleInputChange("id")}
                     onBlur={handleIdBlur}
                     error={errors.id}
                 />
                 <LabeledField
-                    label="Province Name"
+                    label="City Name"
                     value={values.name}
                     onChange={handleInputChange("name")}
                     error={errors.name}
                     disabled={!isEditing}
+                />
+                <LabeledSelect
+                    label="Province"
+                    options={provinces}
+                    value={values.provinceId}
+                    onChange={handleSelectChange("provinceId")}
+                    error={errors.provinceId}
+                    disabled={!isEditing}
+                    placeholder="Select Province"
                 />
 
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-6">

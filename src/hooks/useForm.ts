@@ -27,6 +27,23 @@ export function useForm<T extends Record<string, any>>({
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
   };
 
+  const handleCNICChange = (field: keyof T) => (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    let value = event.target.value.replace(/\D/g, "");
+    if (value.length > 13) value = value.substring(0, 13);
+    
+    let formatted = value;
+    if (value.length > 5 && value.length <= 12) {
+      formatted = `${value.slice(0, 5)}-${value.slice(5)}`;
+    } else if (value.length > 12) {
+      formatted = `${value.slice(0, 5)}-${value.slice(5, 12)}-${value.slice(12)}`;
+    }
+
+    setValues((prev) => ({ ...prev, [field]: formatted }));
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  };
+
   const handleSelectChange = (field: keyof T) => (
     value: string | string[]
   ) => {
@@ -85,6 +102,7 @@ export function useForm<T extends Record<string, any>>({
     message,
     isLoading,
     handleInputChange,
+    handleCNICChange,
     handleSelectChange,
     handleSubmit,
     resetForm,

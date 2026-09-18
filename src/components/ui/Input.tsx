@@ -7,10 +7,11 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon?: ReactNode;
   error?: string;
   wrapperClassName?: string;
+  theme?: "default" | "primary";
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, icon, error, type = "text", className, wrapperClassName, id, ...props },
+  { label, icon, error, theme = "default", type = "text", className, wrapperClassName, id, ...props },
   ref
 ) {
   const generatedId = useId();
@@ -30,18 +31,22 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         className={cn(
           "flex items-center gap-3 rounded-xl border px-4 py-3 focus-within:border-primary-400",
           error ? "border-red-400" : "border-zinc-200",
+          theme === "primary" ? "bg-primary-600 border-primary-600 text-white" : "bg-white",
           className
         )}
       >
         {icon && (
-          <span className="shrink-0 text-zinc-400 [&>svg]:h-5 [&>svg]:w-5">{icon}</span>
+          <span className={cn("shrink-0 [&>svg]:h-5 [&>svg]:w-5", theme === "primary" ? "text-primary-100" : "text-zinc-400")}>{icon}</span>
         )}
         <input
           ref={ref}
           id={inputId}
           type={inputType}
           aria-invalid={!!error}
-          className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none"
+          className={cn(
+            "w-full bg-transparent text-sm outline-none",
+            theme === "primary" ? "text-white placeholder:text-primary-200" : "text-zinc-900 placeholder:text-zinc-400"
+          )}
           {...props}
         />
         {isPassword && (
