@@ -1,186 +1,290 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import { Icon } from "@iconify/react";
-import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 import api from "@/lib/axios";
 import { userSchema } from "@/lib/validations/account";
-import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
-
 import toast from "react-hot-toast";
 import { ROLES, USERS, PERMISSIONS } from "@/utlis/apiRoutes";
 
-const initialValues = { name: "", email: "", password: "", role: "", permissionIds: [] as string[] };
+import { LabeledField } from "@/components/ui/LabeledField";
+import { LabeledSelect } from "@/components/ui/LabeledSelect";
+import { Select } from "@/components/ui/Select";
+
+const initialValues = { id: "", name: "", email: "", password: "", role: "", permissionIds: [] as string[] };
 
 export default function AddUserPage() {
-  const [rolesData, setRolesData] = useState<any[]>([]);
-  const [isRolesLoading, setIsRolesLoading] = useState(true);
-  const [permissionsData, setPermissionsData] = useState<any>(null);
+    const [isNewMode, setIsNewMode] = useState(true);
+    const [isEditing, setIsEditing] = useState(true);
 
-  useEffect(() => {
+    const [rolesData, setRolesData] = useState<any[]>([]);
+    const [permissionsData, setPermissionsData] = useState<any>(null);
+
     const fetchData = async () => {
-      try {
-        const [rolesRes, permsRes] = await Promise.all([
-          api.get(ROLES),
-          api.get(PERMISSIONS)
-        ]);
-        setRolesData(rolesRes.data.data);
-        setPermissionsData(permsRes.data.data);
-      } catch (error) {
-        console.error("Failed to fetch data", error);
-      } finally {
-        setIsRolesLoading(false);
-      }
+        try {
+            const [rolesRes, permsRes] = await Promise.all([
+                api.get(ROLES),
+                api.get(PERMISSIONS)
+            ]);
+            setRolesData(rolesRes.data.data);
+            setPermissionsData(permsRes.data.data);
+        } catch (error) {
+            console.error("Failed to fetch data", error);
+        }
     };
-    fetchData();
-  }, []);
 
-  const roleOptions = [
-    { label: "Select a role", value: "" },
-    ...(rolesData?.map((r: any) => ({ label: r.name, value: String(r.id) })) || []),
-  ];
+    const fetchNextId = async () => {
+        try {
+            const { data } = await api.get(`${USERS}/next-id`);
+            setValues({ ...initialValues, id: String(data.data.nextId) });
+            setIsNewMode(true);
+            setIsEditing(true);
+        } catch (error) {
+            console.error("Failed to fetch next user ID", error);
+        }
+    };
 
-  const formatLabel = (str: string) => {
-    if (!str) return "";
-    return str.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
-  };
+    useEffect(() => {
+        fetchNextId();
+        fetchData();
+    }, []);
 
-  const permissionOptions = permissionsData
-    ? Object.values(permissionsData).flatMap((module: any) =>
-      module.permissions.map((p: any) => ({
-        label: formatLabel(p.name),
-        value: String(p.id),
-        group: formatLabel(module.operation),
-      }))
-    )
-    : [];
+    const roleOptions = [
+        { label: "Select a role", value: "" },
+        ...(rolesData?.map((r: any) => ({ label: r.name, value: String(r.id) })) || []),
+    ];
 
-  async function handleCreateUser(data: typeof initialValues) {
-    try {
-      const response = await api.post(USERS, {
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        roleId: data.role,
-        permissionIds: data.permissionIds.map(Number),
-      });
-      toast.success(response.data.message || "User created successfully");
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to create user");
-      throw error;
-    }
-  }
+    const formatLabel = (str: string) => {
+        if (!str) return "";
+        return str.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+    };
 
-  const {
-    values,
-    errors,
-    message,
-    isLoading,
-    handleInputChange,
-    handleSelectChange,
-    handleSubmit,
-    resetForm,
-  } = useForm({
-    initialValues,
-    validationSchema: userSchema,
-    successMessage: "",
-    onSubmit: handleCreateUser,
-  });
+    const permissionOptions = permissionsData
+        ? Object.values(permissionsData).flatMap((module: any) =>
+            module.permissions.map((p: any) => ({
+                label: formatLabel(p.name),
+                value: String(p.id),
+                group: formatLabel(module.operation),
+            }))
+        )
+        : [];
 
-  return (
-    <section className="w-full max-w-4xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-lg sm:p-7">
-      <div className="mb-6">
+    const {
+        values,
+        errors,
+        isLoading: isSubmitting,
+        handleInputChange,
+        handleSelectChange,
+        handleSubmit,
+        setValues,
+    } = useForm({
+        initialValues,
+        validationSchema: userSchema,
+        onSubmit: async (data) => {
+            const payload = {
+                name: data.name,
+                email: data.email,
+                password: data.password,
+                roleId: data.role,
+                permissionIds: data.permissionIds.map(Number),
+            };
 
-        <h1 className="text-2xl font-bold text-zinc-950 sm:text-3xl">Add New User</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Create a new user account and assign role with permissions.
-        </p>
-      </div>
+            try {
+                if (isNewMode) {
+                    const response = await api.post(USERS, payload);
+                    toast.success(response.data.message || "User created successfully");
+                } else {
+                    const response = await api.put(`${USERS}/${data.id}`, payload);
+                    toast.success(response.data.message || "User updated successfully");
+                }
+                fetchNextId();
+            } catch (error: any) {
+                toast.error(error.response?.data?.message || "Failed to save user");
+                throw error;
+            }
+        },
+    });
 
-      {message && (
-        <p className="mb-5 rounded-lg bg-primary-50 px-3 py-2 text-sm text-primary-700">
-          {message}
-        </p>
-      )}
+    const handleIdBlur = async () => {
+        if (!values.id) return;
+        try {
+            const { data } = await api.get(`${USERS}/${values.id}`);
+            if (data.data) {
+                const u = data.data;
+                setValues({
+                    id: String(u.id),
+                    name: u.name,
+                    email: u.email,
+                    password: "", // Cannot fetch password hash, leave blank so user can change it or keep old
+                    role: String(rolesData.find(r => r.name === u.role)?.id || ""),
+                    permissionIds: u.permissions?.map((p: any) => String(p.id)) || [],
+                });
+                setIsNewMode(false);
+                setIsEditing(false);
+                toast.success("User found");
+            } else {
+                toast.error("User not found");
+                setValues({ ...initialValues, id: values.id });
+                setIsNewMode(true);
+                setIsEditing(true);
+            }
+        } catch (error: any) {
+            toast.error("Invalid User ID");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+        }
+    };
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <Input
-            placeholder="Enter Full Name"
-            icon={<Icon icon="mdi:account-outline" />}
-            value={values.name}
-            onChange={handleInputChange("name")}
-            error={errors.name}
-          />
-          <Input
-            type="email"
-            placeholder="Enter Email Address"
-            icon={<Icon icon="mdi:email-outline" />}
-            value={values.email}
-            onChange={handleInputChange("email")}
-            error={errors.email}
-          />
-          <Input
-            type="password"
-            placeholder="Enter password"
-            icon={<Icon icon="mdi:lock-outline" />}
-            value={values.password}
-            onChange={handleInputChange("password")}
-            error={errors.password}
-          />
-          <Select
-            options={roleOptions}
-            isSearch
-            placeholder="Select a role"
-            icon={<Icon icon="mdi:account-group-outline" />}
-            value={values.role}
-            onChange={handleSelectChange("role")}
-            error={errors.role}
-          />
-        </div>
+    const [searchQuery, setSearchQuery] = useState("");
 
-        <Select
-          options={permissionOptions}
-          isSearch
-          multiple
-          showSelectAll
-          inline
-          placeholder="Select Extra Permissions (Optional)"
-          icon={<Icon icon="mdi:shield-account-outline" />}
-          value={values.permissionIds}
-          lockedValues={rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || []}
-          onChange={handleSelectChange("permissionIds")}
-          error={errors.permissionIds as string | undefined}
-        />
+    const filteredPermissions = permissionsData ? Object.entries(permissionsData).reduce((acc: any, [key, module]: [string, any]) => {
+        const groupName = formatLabel(module.operation);
+        const searchLower = searchQuery.trim().toLowerCase();
+        
+        if (groupName.toLowerCase().includes(searchLower)) {
+            acc[key] = module;
+            return acc;
+        }
+        
+        const matchedPerms = module.permissions.filter((p: any) => formatLabel(p.name).toLowerCase().includes(searchLower));
+        if (matchedPerms.length > 0) {
+            acc[key] = { ...module, permissions: matchedPerms };
+        }
+        return acc;
+    }, {}) : null;
 
-        <div className="flex items-center gap-3 pt-2">
-          <Button
-            type="submit"
-            size="md"
-            variant="primary"
-            isLoading={isLoading}
-            className="!px-8"
-          // leftIcon={<Icon icon="mdi:content-save-outline" />}
-          >
-            Create User
-          </Button>
-          <Button
-            type="button"
-            size="md"
-            variant="outline"
-            onClick={resetForm}
-            disabled={isLoading}
-            className="!px-8"
+    const btnClass = "bg-white border border-zinc-400 px-6 py-1.5 text-[15px] text-black hover:bg-zinc-50 active:bg-zinc-100 min-w-[85px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center";
 
-          // className="!px-8 !text-gray-600 !border-gray-600"
-          // leftIcon={<Icon icon="mdi:refresh" />}
-          >
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </section>
-  );
+    return (
+        <section className="mx-auto mt-10 w-full max-w-4xl bg-[#f0f0f0] p-8 shadow-sm">
+            <h1 className="mb-10 text-center text-4xl text-black tracking-wide">User Registration</h1>
+
+            <form onSubmit={handleSubmit} noValidate>
+                {/* Top Section */}
+                <div className="flex flex-col md:flex-row justify-between items-start gap-10">
+                    <div className="flex-1 w-full space-y-1.5">
+                        <LabeledField
+                            type="number"
+                            label="User ID"
+                            value={values.id || ""}
+                            onChange={handleInputChange("id")}
+                            onBlur={handleIdBlur}
+                            error={errors.id}
+                            wrapperClassName="max-w-[200px]"
+                        />
+                        <LabeledField
+                            label="Name"
+                            value={values.name}
+                            onChange={handleInputChange("name")}
+                            error={errors.name}
+                            disabled={!isEditing}
+                        />
+                        <LabeledField
+                            type="email"
+                            label="Email"
+                            value={values.email}
+                            onChange={handleInputChange("email")}
+                            error={errors.email}
+                            disabled={!isEditing}
+                        />
+                        <LabeledField
+                            type="password"
+                            label="Password"
+                            placeholder={!isNewMode ? "Leave blank to keep same" : ""}
+                            value={values.password}
+                            onChange={handleInputChange("password")}
+                            error={errors.password}
+                            disabled={!isEditing}
+                        />
+                        <LabeledSelect
+                            label="Role"
+                            options={roleOptions}
+                            value={values.role}
+                            onChange={(e) => handleSelectChange("role")(e)}
+                            error={errors.role}
+                            disabled={!isEditing}
+                        />
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="grid grid-cols-1 gap-2 shrink-0">
+                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
+                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
+                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>
+                    </div>
+                </div>
+
+                {/* Information Divider */}
+                <div className="flex items-center justify-between gap-3 mb-4 mt-6">
+                    <div className="flex items-center gap-3 flex-1">
+                        <span className="text-[14px] text-zinc-900 font-normal whitespace-nowrap">Extra Permissions</span>
+                        <div className="flex-1 h-[1px] bg-zinc-500"></div>
+                    </div>
+                    <input 
+                        type="text" 
+                        placeholder="Search permissions..." 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                            }
+                        }}
+                        className="border border-zinc-300 px-3 py-1 outline-none text-sm w-64 text-black"
+                    />
+                </div>
+
+                {/* Permissions Section */}
+                <div className="bg-white p-4 border border-zinc-300 min-h-[200px]">
+                    {filteredPermissions ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
+                                const groupName = formatLabel(module.operation);
+                                const lockedValues = rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || [];
+                                
+                                return (
+                                    <div key={module.operation} className="border border-zinc-200 p-3 bg-zinc-50">
+                                        <h3 className="font-semibold text-zinc-800 mb-2 border-b border-zinc-200 pb-1">{groupName}</h3>
+                                        <div className="space-y-1.5">
+                                            {module.permissions.map((p: any) => {
+                                                const pid = String(p.id);
+                                                const isLocked = lockedValues.includes(pid);
+                                                const isChecked = values.permissionIds.includes(pid) || isLocked;
+                                                return (
+                                                    <label key={pid} className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            disabled={!isEditing || isLocked}
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    handleSelectChange("permissionIds")([...values.permissionIds, pid]);
+                                                                } else {
+                                                                    handleSelectChange("permissionIds")(values.permissionIds.filter(id => id !== pid));
+                                                                }
+                                                            }}
+                                                            className="cursor-pointer"
+                                                        />
+                                                        <span className={isLocked ? "opacity-60" : ""}>{formatLabel(p.name)} {isLocked && <span className="text-[10px] text-zinc-500">(Role)</span>}</span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            }) : (
+                                <div className="col-span-full py-4 text-center text-sm text-zinc-500">
+                                    No permissions match your search.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-zinc-500">Loading permissions...</p>
+                    )}
+                    {errors.permissionIds && <p className="mt-2 text-xs text-red-500">{errors.permissionIds}</p>}
+                </div>
+            </form>
+        </section>
+    );
 }
-

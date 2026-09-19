@@ -175,13 +175,159 @@ export const quotationSchema = z.object({
   items: z
     .array(
       z.object({
-        itemName: z.string().trim().min(1, { message: "Item Name is required" }),
-        oldRate: z.string().min(1, { message: "Old Rate is required" }),
-        proposedRate: z.string().min(1, { message: "Proposed Rate is required" }),
-        approvedRate: z.string().min(1, { message: "Approved Rate is required" }),
+        itemName: z.string().trim().optional().or(z.literal("")),
+        oldRate: z.string().optional().or(z.literal("")),
+        proposedRate: z.string().optional().or(z.literal("")),
+        approvedRate: z.string().optional().or(z.literal("")),
       })
     )
-    .min(1, "At least one item is required"),
+    .superRefine((items, ctx) => {
+      let hasCompleteRow = false;
+      let hasPartialRow = false;
+
+      for (const row of items) {
+        const hasAny = !!(row.itemName || row.oldRate || row.proposedRate || row.approvedRate);
+        const hasAll = !!(row.itemName && row.oldRate && row.proposedRate && row.approvedRate);
+
+        if (hasAll) hasCompleteRow = true;
+        if (hasAny && !hasAll) hasPartialRow = true;
+      }
+
+      if (!hasCompleteRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please fill at least one complete row (Item Name, Old Rate, Proposed Rate, Approved Rate)",
+        });
+      } else if (hasPartialRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please complete all fields in partially filled rows, or leave them completely blank",
+        });
+      }
+    }),
 });
 
 export type QuotationFormValues = z.infer<typeof quotationSchema>;
+
+export const purchaseOrderSchema = z.object({
+  id: z.string().optional(),
+  date: z.string().min(1, { message: "Date is required" }),
+  vendorId: z.string().min(1, { message: "Vendor is required" }),
+  validity: z.string().min(1, { message: "Validity is required" }),
+  instruction: z.string().min(1, { message: "Instruction is required" }),
+  quotationId: z.string().min(1, { message: "Quotation is required" }),
+  items: z
+    .array(
+      z.object({
+        code: z.string().optional().or(z.literal("")),
+        itemName: z.string().trim().optional().or(z.literal("")),
+        unit: z.string().optional().or(z.literal("")),
+        quantity: z.string().optional().or(z.literal("")),
+        rate: z.string().optional().or(z.literal("")),
+        amount: z.string().optional().or(z.literal("")),
+      })
+    )
+    .superRefine((items, ctx) => {
+      let hasCompleteRow = false;
+      let hasPartialRow = false;
+
+      for (const row of items) {
+        const hasAny = !!(row.code || row.itemName || row.unit || row.quantity || row.rate || row.amount);
+        const hasAll = !!(row.code && row.itemName && row.unit && row.quantity && row.rate && row.amount);
+
+        if (hasAll) hasCompleteRow = true;
+        if (hasAny && !hasAll) hasPartialRow = true;
+      }
+
+      if (!hasCompleteRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please fill at least one complete row",
+        });
+      } else if (hasPartialRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please complete all fields in partially filled rows, or leave them completely blank",
+        });
+      }
+
+      // Check for unique codes
+      const codes = items.map(r => r.code).filter(c => c && c.trim() !== "");
+      const uniqueCodes = new Set(codes);
+      if (codes.length !== uniqueCodes.size) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Each Code must be unique across the rows",
+        });
+      }
+    }),
+    
+  total: z.string().optional(),
+  saleTaxPercent: z.string().optional(),
+  totalWithSaleTax: z.string().optional(),
+  withHoldingPercent: z.string().optional(),
+  withHoldingAmount: z.string().optional(),
+  grandTotal: z.string().optional(),
+});
+
+export type PurchaseOrderFormValues = z.infer<typeof purchaseOrderSchema>;
+
+export const inwardSchema = z.object({
+  id: z.string().optional(),
+  date: z.string().min(1, { message: "Date is required" }),
+  Type: z.enum(["againstSimple", "againstPO", "againstDealarRejection"]),
+  purchaseOrderId: z.string().optional(),
+  quotationId: z.string().optional(),
+  GRIRNo: z.string().min(1, { message: "G.R.LR No is required" }),
+  DCNo: z.string().min(1, { message: "DC No is required" }),
+  billNO: z.string().optional(),
+  detail: z.string().min(1, { message: "Details are required" }),
+  name: z.string().optional(), // Vendor name fetched from PO
+  items: z
+    .array(
+      z.object({
+        code: z.string().optional().or(z.literal("")),
+        itemName: z.string().trim().optional().or(z.literal("")),
+        poBalQty: z.string().optional().or(z.literal("")),
+        recQty: z.string().optional().or(z.literal("")),
+        rejQty: z.string().optional().or(z.literal("")),
+        okQty: z.string().optional().or(z.literal("")),
+        packingDetail: z.string().optional().or(z.literal("")),
+      })
+    )
+    .superRefine((items, ctx) => {
+      let hasCompleteRow = false;
+      let hasPartialRow = false;
+
+      for (const row of items) {
+        const hasAny = !!(row.code || row.itemName || row.poBalQty || row.recQty || row.rejQty || row.okQty || row.packingDetail);
+        const hasAll = !!(row.code && row.itemName && row.poBalQty && row.recQty && row.rejQty && row.okQty);
+
+        if (hasAll) hasCompleteRow = true;
+        if (hasAny && !hasAll) hasPartialRow = true;
+      }
+
+      if (!hasCompleteRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please fill at least one complete row",
+        });
+      } else if (hasPartialRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please complete all fields in partially filled rows, or leave them completely blank",
+        });
+      }
+
+      const codes = items.map(r => r.code).filter(c => c && c.trim() !== "");
+      const uniqueCodes = new Set(codes);
+      if (codes.length !== uniqueCodes.size) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Each Code must be unique across the rows",
+        });
+      }
+    }),
+});
+
+export type InwardFormValues = z.infer<typeof inwardSchema>;

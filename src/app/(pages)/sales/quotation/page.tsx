@@ -140,7 +140,15 @@ export default function QuotationPage() {
 
     const updateItemRow = (index: number, field: keyof typeof initialValues.items[0], value: string) => {
         setValues((prev) => {
-            const newItems = prev.items.map((row, i) => (i === index ? { ...row, [field]: value } : row));
+            const newItems = prev.items.map((row, i) => {
+                if (i === index) {
+                    if (field === "itemName" && value === "") {
+                        return { itemName: "", oldRate: "", proposedRate: "", approvedRate: "" };
+                    }
+                    return { ...row, [field]: value };
+                }
+                return row;
+            });
             return { ...prev, items: newItems };
         });
     };
@@ -178,7 +186,7 @@ export default function QuotationPage() {
                         disabled={!isEditing}
                         placeholder="Select Vendor"
                     />
-                    
+
                     <LabeledField
                         label="Remarks"
                         value={values.remarks}
@@ -209,7 +217,7 @@ export default function QuotationPage() {
                                             disabled={!isEditing}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
-                                            <option value="" disabled hidden></option>
+                                            <option value="">Select Item</option>
                                             {inventoryItems.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                         </select>
                                     </td>
