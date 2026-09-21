@@ -17,7 +17,6 @@ export const NAV_ITEMS: NavItem[] = [
       { label: "Vendor", href: "/master-entries/vendors", operation: "vendor" },
       { label: "Department", href: "/master-entries/departments", operation: "department" },
       { label: "Inventory", href: "/master-entries/inventory", operation: "inventory" },
-      { label: "Account Code", href: "/master/account-codes", operation: "account_code" },
     ],
   },
   {
@@ -76,6 +75,7 @@ export const NAV_ITEMS: NavItem[] = [
       { label: "Users", href: "/account-department/add-user", operation: "user" },
       { label: "Roles", href: "/account-department/add-role", operation: "role" },
       { label: "Permissions", href: "/account-department/permissions", operation: "permission" },
+      { label: "Account Code", href: "/account-department/account-code", operation: "account_code" },
     ],
   },
   {

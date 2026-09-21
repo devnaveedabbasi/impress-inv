@@ -331,3 +331,57 @@ export const inwardSchema = z.object({
 });
 
 export type InwardFormValues = z.infer<typeof inwardSchema>;
+
+export const accountCodeSchema = z.object({
+  id: z.string().optional(),
+  headName: z.string().min(1, { message: "Head Name is required" }),
+  group: z.string().min(1, { message: "Group is required" }),
+  items: z
+    .array(
+      z.object({
+        code: z.string().optional().or(z.literal("")),
+        name: z.string().trim()
+          .min(2, { message: "Name must be at least 2 characters" })
+          .max(100, { message: "Name is too long" })
+          .optional().or(z.literal("")),
+        address: z.string().trim()
+          .min(5, { message: "Address must be at least 5 characters" })
+          .max(255)
+          .optional().or(z.literal("")),
+        contactNo: z.string().trim()
+          .regex(/^[0-9+\-\s]{7,15}$/, { message: "Enter a valid contact number (7-15 digits)" })
+          .optional().or(z.literal("")),
+        saleTaxNo: z.string().trim()
+          .min(3, { message: "Sale Tax No must be at least 3 characters" })
+          .max(20)
+          .optional().or(z.literal("")),
+        openingBalance: z.string().optional().refine((v) => !v || !Number.isNaN(Number(v)), { message: "Valid number required" }),
+      })
+    )
+    .superRefine((items, ctx) => {
+      let hasCompleteRow = false;
+      let hasPartialRow = false;
+
+      for (const row of items) {
+        const hasAny = !!(row.code || row.name || row.address || row.contactNo || row.saleTaxNo || row.openingBalance);
+        const hasRequired = !!(row.code && row.name);
+
+        if (hasRequired) hasCompleteRow = true;
+        if (hasAny && !hasRequired) hasPartialRow = true;
+      }
+
+      if (!hasCompleteRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please fill at least one row (Code and Name are required)",
+        });
+      } else if (hasPartialRow) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please complete Code and Name for all partially filled rows, or leave them completely blank",
+        });
+      }
+    }),
+});
+
+export type AccountCodeFormValues = z.infer<typeof accountCodeSchema>;
