@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import api from "@/lib/axios";
 import { userSchema } from "@/lib/validations/account";
 import { useForm } from "@/hooks/useForm";
+import { usePermissions } from "@/hooks/usePermissions";
 import toast from "react-hot-toast";
 import { ROLES, USERS, PERMISSIONS } from "@/utlis/apiRoutes";
+import useDebounce from "@/hooks/useDebounce";
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
@@ -19,6 +21,11 @@ export default function AddUserPage() {
 
     const [rolesData, setRolesData] = useState<any[]>([]);
     const [permissionsData, setPermissionsData] = useState<any>(null);
+
+    const { hasPermission, user: currentUser } = usePermissions();
+    const canCreate = hasPermission("user", "create");
+    const canUpdate = hasPermission("user", "update");
+    const canView = hasPermission("user", "view");
 
     const fetchData = async () => {
         try {
@@ -105,8 +112,25 @@ export default function AddUserPage() {
         },
     });
 
+    const isSelfUpdate = !isNewMode && currentUser && String(currentUser.id) === String(values.id);
+
     const handleIdBlur = async () => {
         if (!values.id) return;
+
+        if (String(values.id) === "1") {
+            toast.error("Admin user cannot be modified");
+            fetchNextId();
+            return;
+        }
+
+        if (!canView) {
+            toast.error("You do not have permission to view or search for users.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${USERS}/${values.id}`);
             if (data.data) {
@@ -129,7 +153,11 @@ export default function AddUserPage() {
                 setIsEditing(true);
             }
         } catch (error: any) {
-            toast.error("Invalid User ID");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid User ID");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
             setIsEditing(true);
@@ -137,10 +165,11 @@ export default function AddUserPage() {
     };
 
     const [searchQuery, setSearchQuery] = useState("");
+    const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
     const filteredPermissions = permissionsData ? Object.entries(permissionsData).reduce((acc: any, [key, module]: [string, any]) => {
         const groupName = formatLabel(module.operation);
-        const searchLower = searchQuery.trim().toLowerCase();
+        const searchLower = debouncedSearchQuery.trim().toLowerCase();
         
         if (groupName.toLowerCase().includes(searchLower)) {
             acc[key] = module;
@@ -203,15 +232,15 @@ export default function AddUserPage() {
                             value={values.role}
                             onChange={(e) => handleSelectChange("role")(e)}
                             error={errors.role}
-                            disabled={!isEditing}
+                            disabled={!isEditing || isSelfUpdate}
                         />
                     </div>
 
                     {/* Action Buttons */}
                     <div className="grid grid-cols-1 gap-2 shrink-0">
-                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
-                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
-                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>
+                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}>Save</button>
+                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode || !canUpdate}>Edit</button>
                     </div>
                 </div>
 
@@ -219,6 +248,7 @@ export default function AddUserPage() {
                 <div className="flex items-center justify-between gap-3 mb-4 mt-6">
                     <div className="flex items-center gap-3 flex-1">
                         <span className="text-[14px] text-zinc-900 font-normal whitespace-nowrap">Extra Permissions</span>
+                        {isSelfUpdate && <span className="text-xs text-red-500 font-medium ml-2">(You cannot modify your own role or permissions)</span>}
                         <div className="flex-1 h-[1px] bg-zinc-500"></div>
                     </div>
                     <input 
@@ -236,26 +266,43 @@ export default function AddUserPage() {
                 </div>
 
                 {/* Permissions Section */}
-                <div className="bg-white p-4 border border-zinc-300 min-h-[200px]">
+                <div className="bg-white border border-zinc-300 min-h-[200px] overflow-x-auto">
                     {filteredPermissions ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
-                                const groupName = formatLabel(module.operation);
-                                const lockedValues = rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || [];
-                                
-                                return (
-                                    <div key={module.operation} className="border border-zinc-200 p-3 bg-zinc-50">
-                                        <h3 className="font-semibold text-zinc-800 mb-2 border-b border-zinc-200 pb-1">{groupName}</h3>
-                                        <div className="space-y-1.5">
-                                            {module.permissions.map((p: any) => {
+                        <table className="w-full text-left text-sm text-zinc-700 border-collapse">
+                            <thead className="bg-zinc-100 border-b border-zinc-300">
+                                <tr>
+                                    <th className="px-4 py-2 font-semibold border-r border-zinc-300 w-1/3">Module</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">View</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">Create</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">Update</th>
+                                    <th className="px-4 py-2 font-semibold text-center">Delete</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
+                                    const groupName = formatLabel(module.operation);
+                                    const lockedValues = rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || [];
+                                    
+                                    const getPerm = (action: string) => module.permissions.find((p: any) => p.name === action);
+
+                                    return (
+                                        <tr key={module.operation} className="border-b border-zinc-200 hover:bg-zinc-50">
+                                            <td className="px-4 py-2 font-medium border-r border-zinc-200">{groupName}</td>
+                                            {["view", "create", "update", "delete"].map((action, index) => {
+                                                const p = getPerm(action);
+                                                const isLast = index === 3;
+                                                const tdClass = `px-4 py-2 text-center ${!isLast ? 'border-r border-zinc-200' : ''}`;
+                                                
+                                                if (!p) return <td key={action} className={`${tdClass} text-zinc-400`}>-</td>;
+                                                
                                                 const pid = String(p.id);
                                                 const isLocked = lockedValues.includes(pid);
                                                 const isChecked = values.permissionIds.includes(pid) || isLocked;
                                                 return (
-                                                    <label key={pid} className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+                                                    <td key={action} className={tdClass}>
                                                         <input 
                                                             type="checkbox" 
-                                                            disabled={!isEditing || isLocked}
+                                                            disabled={!isEditing || isLocked || isSelfUpdate}
                                                             checked={isChecked}
                                                             onChange={(e) => {
                                                                 if (e.target.checked) {
@@ -264,25 +311,27 @@ export default function AddUserPage() {
                                                                     handleSelectChange("permissionIds")(values.permissionIds.filter(id => id !== pid));
                                                                 }
                                                             }}
-                                                            className="cursor-pointer"
+                                                            className="cursor-pointer mx-auto w-4 h-4 accent-zinc-800"
+                                                            title={isLocked ? "Inherited from Role" : ""}
                                                         />
-                                                        <span className={isLocked ? "opacity-60" : ""}>{formatLabel(p.name)} {isLocked && <span className="text-[10px] text-zinc-500">(Role)</span>}</span>
-                                                    </label>
+                                                    </td>
                                                 );
                                             })}
-                                        </div>
-                                    </div>
-                                );
-                            }) : (
-                                <div className="col-span-full py-4 text-center text-sm text-zinc-500">
-                                    No permissions match your search.
-                                </div>
-                            )}
-                        </div>
+                                        </tr>
+                                    );
+                                }) : (
+                                    <tr>
+                                        <td colSpan={5} className="py-4 text-center text-sm text-zinc-500">
+                                            No permissions match your search.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     ) : (
-                        <p className="text-sm text-zinc-500">Loading permissions...</p>
+                        <p className="p-4 text-sm text-zinc-500">Loading permissions...</p>
                     )}
-                    {errors.permissionIds && <p className="mt-2 text-xs text-red-500">{errors.permissionIds}</p>}
+                    {errors.permissionIds && <p className="p-4 mt-2 text-xs text-red-500">{errors.permissionIds}</p>}
                 </div>
             </form>
         </section>

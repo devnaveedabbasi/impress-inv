@@ -10,6 +10,7 @@ import { inventorySchema, type InventoryFormValues } from "@/lib/validations/mas
 import { INVENTORY, CATEGORIES, DEPARTMENTS, STATIONS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const defaultRow = () => ({ stationId: "", color: "", qty: "" });
 const initialValues: InventoryFormValues = {
@@ -58,6 +59,11 @@ export default function InventoryPage() {
             console.error("Failed to fetch dropdown options", error);
         }
     };
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("inventory", "create");
+    const canUpdate = hasPermission("inventory", "update");
+    const canView = hasPermission("inventory", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -124,6 +130,14 @@ export default function InventoryPage() {
     const handleIdBlur = async () => {
         if (!values.id) return;
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${INVENTORY}/${values.id}`);
             if (data.data) {
@@ -157,7 +171,11 @@ export default function InventoryPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Inventory item not found");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Inventory item not found");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
         }
@@ -302,7 +320,7 @@ export default function InventoryPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={fetchNextId}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canCreate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
@@ -312,7 +330,7 @@ export default function InventoryPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={() => setIsEditing(true)}
-                        disabled={isSubmitting || isNewMode || isEditing}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         Edit
@@ -323,7 +341,7 @@ export default function InventoryPage() {
                         variant="secondary"
                         shape="rounded"
                         isLoading={isSubmitting}
-                        disabled={!isEditing}
+                        disabled={!isEditing || (isNewMode ? !canCreate : !canUpdate)}
                         className="border border-zinc-400 bg-white px-8 hover:bg-zinc-50"
                     >
                         Save

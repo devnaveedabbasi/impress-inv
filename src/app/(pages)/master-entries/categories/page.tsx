@@ -8,6 +8,7 @@ import { categorySchema, type CategoryFormValues } from "@/lib/validations/maste
 import { CATEGORIES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const initialValues: CategoryFormValues = {
     id: "",
@@ -17,6 +18,11 @@ const initialValues: CategoryFormValues = {
 export default function CategoryPage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("category", "create");
+    const canUpdate = hasPermission("category", "update");
+    const canView = hasPermission("category", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -63,6 +69,14 @@ export default function CategoryPage() {
     const handleIdBlur = async () => {
         if (!values.id) return;
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${CATEGORIES}/${values.id}`);
             if (data.data) {
@@ -76,7 +90,11 @@ export default function CategoryPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Category ID");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid Category ID");
+            }
             setValues({ ...values, name: "" });
             setIsNewMode(true);
         }
@@ -109,7 +127,7 @@ export default function CategoryPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={fetchNextId}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canCreate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
@@ -119,7 +137,7 @@ export default function CategoryPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={() => setIsEditing(true)}
-                        disabled={isSubmitting || isNewMode || isEditing}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         Edit
@@ -130,7 +148,7 @@ export default function CategoryPage() {
                         variant="secondary"
                         shape="rounded"
                         isLoading={isSubmitting}
-                        disabled={!isEditing}
+                        disabled={!isEditing || (isNewMode ? !canCreate : !canUpdate)}
                         className="border border-zinc-400 bg-white px-8 hover:bg-zinc-50"
                     >
                         Save

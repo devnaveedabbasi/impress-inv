@@ -81,8 +81,8 @@ export const NAV_ITEMS: NavItem[] = [
   {
     label: "Window",
     children: [
-      { label: "Window 1", href: "/window/window1" },
-      { label: "Window 2", href: "/window/window2" },
+      { label: "Window 1", href: "/window/window1", operation: "window1" },
+      { label: "Window 2", href: "/window/window2", operation: "window2" },
     ],
   },
 ];

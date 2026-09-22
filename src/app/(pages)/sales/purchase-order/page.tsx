@@ -9,6 +9,7 @@ import { purchaseOrderSchema, type PurchaseOrderFormValues } from "@/lib/validat
 import { PURCHASE_ORDERS, VENDORS, QUOTATIONS, INVENTORY } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const defaultRow = () => ({ code: "", itemName: "", unit: "", quantity: "", rate: "", amount: "" });
 const initialValues: PurchaseOrderFormValues = {
@@ -54,6 +55,11 @@ export default function PurchaseOrderPage() {
             console.error("Failed to fetch dropdown options", error);
         }
     };
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("purchase_order", "create");
+    const canUpdate = hasPermission("purchase_order", "update");
+    const canView = hasPermission("purchase_order", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -129,6 +135,14 @@ export default function PurchaseOrderPage() {
 
     const handleIdBlur = async () => {
         if (!values.id) return;
+
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
         try {
             const { data } = await api.get(`${PURCHASE_ORDERS}/${values.id}`);
             if (data.data) {
@@ -169,7 +183,11 @@ export default function PurchaseOrderPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Purchase Order not found");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Purchase Order not found");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
         }
@@ -402,7 +420,7 @@ export default function PurchaseOrderPage() {
                 <div className="flex flex-col md:flex-row justify-between items-end gap-6">
                     {/* Action Buttons */}
                     <div className="flex gap-2">
-                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
+                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
                         <button type="button" className={btnClass}>Print</button>
                         <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>

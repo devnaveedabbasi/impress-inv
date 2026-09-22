@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import api from "@/lib/axios";
 import { roleSchema, type RoleFormValues } from "@/lib/validations/account";
 import { useForm } from "@/hooks/useForm";
+import { usePermissions } from "@/hooks/usePermissions";
 import toast from "react-hot-toast";
 import { PERMISSIONS, ROLES } from "@/utlis/apiRoutes";
+import useDebounce from "@/hooks/useDebounce";
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Select } from "@/components/ui/Select";
@@ -20,6 +22,11 @@ export default function AddRolePage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
     const [permissionsData, setPermissionsData] = useState<any>(null);
+
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("role", "create");
+    const canUpdate = hasPermission("role", "update");
+    const canView = hasPermission("role", "view");
 
     const fetchPermissions = async () => {
         try {
@@ -96,6 +103,15 @@ export default function AddRolePage() {
 
     const handleIdBlur = async () => {
         if (!values.id) return;
+
+        if (!canView) {
+            toast.error("You do not have permission to view or search for roles.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${ROLES}/${values.id}`);
             if (data.data) {
@@ -115,7 +131,11 @@ export default function AddRolePage() {
                 setIsEditing(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Role ID");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid Role ID");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
             setIsEditing(true);
@@ -123,10 +143,11 @@ export default function AddRolePage() {
     };
 
     const [searchQuery, setSearchQuery] = useState("");
+    const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
     const filteredPermissions = permissionsData ? Object.entries(permissionsData).reduce((acc: any, [key, module]: [string, any]) => {
         const groupName = formatLabel(module.operation);
-        const searchLower = searchQuery.trim().toLowerCase();
+        const searchLower = debouncedSearchQuery.trim().toLowerCase();
         
         if (groupName.toLowerCase().includes(searchLower)) {
             acc[key] = module;
@@ -170,9 +191,9 @@ export default function AddRolePage() {
 
                     {/* Action Buttons */}
                     <div className="grid grid-cols-1 gap-2 shrink-0">
-                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
-                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
-                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>
+                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}>Save</button>
+                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode || !canUpdate}>Edit</button>
                     </div>
                 </div>
 
@@ -197,21 +218,37 @@ export default function AddRolePage() {
                 </div>
 
                 {/* Permissions Section */}
-                <div className="bg-white p-4 border border-zinc-300 min-h-[200px]">
+                <div className="bg-white border border-zinc-300 min-h-[200px] overflow-x-auto">
                     {filteredPermissions ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
-                                const groupName = formatLabel(module.operation);
-                                
-                                return (
-                                    <div key={module.operation} className="border border-zinc-200 p-3 bg-zinc-50">
-                                        <h3 className="font-semibold text-zinc-800 mb-2 border-b border-zinc-200 pb-1">{groupName}</h3>
-                                        <div className="space-y-1.5">
-                                            {module.permissions.map((p: any) => {
+                        <table className="w-full text-left text-sm text-zinc-700 border-collapse">
+                            <thead className="bg-zinc-100 border-b border-zinc-300">
+                                <tr>
+                                    <th className="px-4 py-2 font-semibold border-r border-zinc-300 w-1/3">Module</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">View</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">Create</th>
+                                    <th className="px-4 py-2 font-semibold text-center border-r border-zinc-300">Update</th>
+                                    <th className="px-4 py-2 font-semibold text-center">Delete</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
+                                    const groupName = formatLabel(module.operation);
+                                    const getPerm = (action: string) => module.permissions.find((p: any) => p.name === action);
+
+                                    return (
+                                        <tr key={module.operation} className="border-b border-zinc-200 hover:bg-zinc-50">
+                                            <td className="px-4 py-2 font-medium border-r border-zinc-200">{groupName}</td>
+                                            {["view", "create", "update", "delete"].map((action, index) => {
+                                                const p = getPerm(action);
+                                                const isLast = index === 3;
+                                                const tdClass = `px-4 py-2 text-center ${!isLast ? 'border-r border-zinc-200' : ''}`;
+                                                
+                                                if (!p) return <td key={action} className={`${tdClass} text-zinc-400`}>-</td>;
+                                                
                                                 const pid = String(p.id);
                                                 const isChecked = values.permissionIds.includes(pid);
                                                 return (
-                                                    <label key={pid} className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+                                                    <td key={action} className={tdClass}>
                                                         <input 
                                                             type="checkbox" 
                                                             disabled={!isEditing}
@@ -223,25 +260,26 @@ export default function AddRolePage() {
                                                                     handleSelectChange("permissionIds")(values.permissionIds.filter((id: string) => id !== pid));
                                                                 }
                                                             }}
-                                                            className="cursor-pointer"
+                                                            className="cursor-pointer mx-auto w-4 h-4 accent-zinc-800"
                                                         />
-                                                        <span>{formatLabel(p.name)}</span>
-                                                    </label>
+                                                    </td>
                                                 );
                                             })}
-                                        </div>
-                                    </div>
-                                );
-                            }) : (
-                                <div className="col-span-full py-4 text-center text-sm text-zinc-500">
-                                    No permissions match your search.
-                                </div>
-                            )}
-                        </div>
+                                        </tr>
+                                    );
+                                }) : (
+                                    <tr>
+                                        <td colSpan={5} className="py-4 text-center text-sm text-zinc-500">
+                                            No permissions match your search.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     ) : (
-                        <p className="text-sm text-zinc-500">Loading permissions...</p>
+                        <p className="p-4 text-sm text-zinc-500">Loading permissions...</p>
                     )}
-                    {errors.permissionIds && <p className="mt-2 text-xs text-red-500">{errors.permissionIds}</p>}
+                    {errors.permissionIds && <p className="p-4 mt-2 text-xs text-red-500">{errors.permissionIds}</p>}
                 </div>
             </form>
         </section>

@@ -9,6 +9,7 @@ import { vendorSchema, type VendorFormValues } from "@/lib/validations/master";
 import { VENDORS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const initialValues: VendorFormValues = {
     id: "",
@@ -60,6 +61,11 @@ export default function VendorPage() {
             toast.error("Failed to load cities");
         }
     };
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("vendor", "create");
+    const canUpdate = hasPermission("vendor", "update");
+    const canView = hasPermission("vendor", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -132,6 +138,14 @@ export default function VendorPage() {
     const handleIdBlur = async () => {
         if (!values.id) return;
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${VENDORS}/${values.id}`);
             if (data.data) {
@@ -165,7 +179,11 @@ export default function VendorPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Vendor not found");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Vendor not found");
+            }
             setValues({ ...initialValues, id: values.id });
             setCities([]);
             setIsNewMode(true);
@@ -320,7 +338,7 @@ export default function VendorPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={fetchNextId}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canCreate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
@@ -330,7 +348,7 @@ export default function VendorPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={() => setIsEditing(true)}
-                        disabled={isSubmitting || isNewMode || isEditing}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         Edit
@@ -341,7 +359,7 @@ export default function VendorPage() {
                         variant="secondary"
                         shape="rounded"
                         isLoading={isSubmitting}
-                        disabled={!isEditing}
+                        disabled={!isEditing || (isNewMode ? !canCreate : !canUpdate)}
                         className="border border-zinc-400 bg-white px-8 hover:bg-zinc-50"
                     >
                         Save

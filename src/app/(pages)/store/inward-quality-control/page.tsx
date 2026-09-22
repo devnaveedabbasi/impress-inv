@@ -9,6 +9,7 @@ import { inwardSchema, type InwardFormValues } from "@/lib/validations/master";
 import { INWARDS, PURCHASE_ORDERS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const defaultRow = () => ({ code: "", itemName: "", poBalQty: "", recQty: "", rejQty: "", okQty: "", packingDetail: "" });
 
@@ -43,6 +44,11 @@ export default function InwardQualityControlPage() {
             console.error("Failed to fetch dropdown options", error);
         }
     };
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("inward_quality_control", "create");
+    const canUpdate = hasPermission("inward_quality_control", "update");
+    const canView = hasPermission("inward_quality_control", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -115,6 +121,14 @@ export default function InwardQualityControlPage() {
 
     const handleIdBlur = async () => {
         if (!values.id) return;
+
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
         try {
             const { data } = await api.get(`${INWARDS}/${values.id}`);
             if (data.data) {
@@ -154,7 +168,11 @@ export default function InwardQualityControlPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Inward record not found");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Inward record not found");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
         }
@@ -426,7 +444,7 @@ export default function InwardQualityControlPage() {
 
                 {/* Bottom Buttons */}
                 <div className="flex justify-center gap-3">
-                    <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
+                    <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
                     <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isNewMode || isEditing}>Edit</button>
                     <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
                     <button type="button" className={btnClass}>Pint</button>

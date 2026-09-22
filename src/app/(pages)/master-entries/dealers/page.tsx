@@ -7,6 +7,7 @@ import { dealerSchema, type DealerFormValues } from "@/lib/validations/master";
 import { DEALERS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
@@ -58,6 +59,11 @@ export default function DealerPage() {
             console.error("Failed to fetch cities", error);
         }
     };
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("dealer", "create");
+    const canUpdate = hasPermission("dealer", "update");
+    const canView = hasPermission("dealer", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -129,6 +135,14 @@ export default function DealerPage() {
     const handleIdBlur = async () => {
         if (!values.id) return;
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${DEALERS}/${values.id}`);
             if (data.data) {
@@ -162,7 +176,11 @@ export default function DealerPage() {
                 setIsEditing(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Dealer ID");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid Dealer ID");
+            }
             setValues({ ...initialValues, id: values.id });
             setCities([]);
             setIsNewMode(true);
@@ -233,7 +251,7 @@ export default function DealerPage() {
 
                     {/* Action Buttons - aligned top right in a 2x2 grid to match image */}
                     <div className="grid grid-cols-2 gap-2 shrink-0">
-                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
+                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
 
                         <button type="button" onClick={() => window.open("/print/dealers", "_blank")} className={btnClass}>Print</button>

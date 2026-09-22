@@ -5,6 +5,7 @@ import api from "@/lib/axios";
 import { accountCodeSchema, type AccountCodeFormValues } from "@/lib/validations/master";
 import { useForm } from "@/hooks/useForm";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 import { ACCOUNT_CODES } from "@/utlis/apiRoutes";
 
 const initialValues: AccountCodeFormValues = {
@@ -34,6 +35,11 @@ const groupOptions = [
 export default function AccountCodePage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("account_code", "create");
+    const canUpdate = hasPermission("account_code", "update");
+    const canView = hasPermission("account_code", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -91,6 +97,14 @@ export default function AccountCodePage() {
 
     const handleIdBlur = async () => {
         if (!values.id) return;
+
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
         try {
             const { data } = await api.get(`${ACCOUNT_CODES}/${values.id}`);
             if (data.data) {
@@ -125,7 +139,11 @@ export default function AccountCodePage() {
                 setIsEditing(true);
             }
         } catch (error: any) {
-            toast.error("Invalid Head Code");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid Head Code");
+            }
             setValues({ ...initialValues, id: values.id });
             setIsNewMode(true);
             setIsEditing(true);
@@ -290,7 +308,7 @@ export default function AccountCodePage() {
 
                 {/* Action Buttons */}
                 <div className="flex items-center justify-center gap-4">
-                    <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting}>New</button>
+                    <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
                     <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
                     <button type="button" onClick={async () => {
                         if (!values.id) return;

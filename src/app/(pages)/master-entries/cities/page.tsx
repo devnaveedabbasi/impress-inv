@@ -10,6 +10,7 @@ import { citySchema, type CityFormValues } from "@/lib/validations/master";
 import { CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const initialValues: CityFormValues = {
     id: "",
@@ -22,6 +23,11 @@ export default function CityPage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
     const [provinces, setProvinces] = useState<{ label: string, value: string }[]>([]);
+    const { hasPermission } = usePermissions();
+    const canCreate = hasPermission("city", "create");
+    const canUpdate = hasPermission("city", "update");
+    const canView = hasPermission("city", "view");
+
 
     const fetchNextId = async () => {
         try {
@@ -86,6 +92,14 @@ export default function CityPage() {
     const handleIdBlur = async () => {
         if (!values.id) return;
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: values.id });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
         try {
             const { data } = await api.get(`${CITIES}/${values.id}`);
             if (data.data) {
@@ -104,7 +118,11 @@ export default function CityPage() {
                 setIsNewMode(true);
             }
         } catch (error: any) {
-            toast.error("Invalid City ID");
+            if (error.response?.status === 403) {
+                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+            } else {
+                toast.error("Invalid City ID");
+            }
             setValues({ ...values, name: "", provinceId: "" });
             setIsNewMode(true);
         }
@@ -146,7 +164,7 @@ export default function CityPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={fetchNextId}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canCreate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
@@ -156,7 +174,7 @@ export default function CityPage() {
                         variant="secondary"
                         shape="rounded"
                         onClick={() => setIsEditing(true)}
-                        disabled={isSubmitting || isNewMode || isEditing}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         Edit
@@ -167,7 +185,7 @@ export default function CityPage() {
                         variant="secondary"
                         shape="rounded"
                         isLoading={isSubmitting}
-                        disabled={!isEditing}
+                        disabled={!isEditing || (isNewMode ? !canCreate : !canUpdate)}
                         className="border border-zinc-400 bg-white px-8 hover:bg-zinc-50"
                     >
                         Save
