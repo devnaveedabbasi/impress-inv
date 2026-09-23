@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LabeledField } from "@/components/ui/LabeledField";
-import { LabeledSelect } from "@/components/ui/LabeledSelect";
-import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import { inwardSchema, type InwardFormValues } from "@/lib/validations/master";
-import { INWARDS, PURCHASE_ORDERS } from "@/utlis/apiRoutes";
+import { INWARDS, PURCHASE_ORDERS, VENDORS, INVENTORY } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -31,14 +28,41 @@ export default function InwardQualityControlPage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
     const [purchaseOrders, setPurchaseOrders] = useState<{ label: string; value: string }[]>([]);
+    
+    // Print Modal State
+    const [showPrintModal, setShowPrintModal] = useState(false);
+    const [vendors, setVendors] = useState<{ label: string; value: string }[]>([]);
+    const [itemOptions, setItemOptions] = useState<{ label: string; value: string }[]>([]);
+    const [printVendorId, setPrintVendorId] = useState("");
+    const [printFromDate, setPrintFromDate] = useState("");
+    const [printToDate, setPrintToDate] = useState("");
+    const [printItemName, setPrintItemName] = useState("");
+    const [printStatus, setPrintStatus] = useState("");
 
     const fetchOptions = async () => {
         try {
-            const [poRes] = await Promise.allSettled([
+            const [poRes, vendorRes, inventoryRes] = await Promise.allSettled([
                 api.get(PURCHASE_ORDERS),
+                api.get(VENDORS),
+                api.get(INVENTORY),
             ]);
             if (poRes.status === "fulfilled") {
                 setPurchaseOrders((poRes.value.data.data || []).map((po: any) => ({ label: `PO-${po.id}`, value: String(po.id) })));
+            }
+            if (vendorRes.status === "fulfilled") {
+                setVendors([
+                    { label: "All Vendors", value: "" },
+                    ...(vendorRes.value.data.data || []).map((v: any) => ({ label: v.vendorName, value: String(v.id) }))
+                ]);
+            }
+            if (inventoryRes.status === "fulfilled") {
+                const names: string[] = Array.from(
+                    new Set((inventoryRes.value.data.data || []).map((item: any) => item.itemName))
+                );
+                setItemOptions([
+                    { label: "All Items", value: "" },
+                    ...names.map((name) => ({ label: name, value: name })),
+                ]);
             }
         } catch (error) {
             console.error("Failed to fetch dropdown options", error);
@@ -78,7 +102,7 @@ export default function InwardQualityControlPage() {
         initialValues,
         validationSchema: inwardSchema,
         onSubmit: async (data) => {
-            const validRows = data.items.filter(r => r.code && r.itemName && r.poBalQty && r.recQty && r.rejQty && r.okQty);
+            const validRows = data.items.filter(r => r.code && r.itemName);
             if (validRows.length === 0) {
                 toast.error("Please fill at least one complete row");
                 return;
@@ -94,12 +118,12 @@ export default function InwardQualityControlPage() {
                 billNO: data.billNO ? Number(data.billNO) : null,
                 detail: data.detail,
                 
-                code: validRows.map(r => Number(r.code)),
+                code: validRows.map(r => Number(r.code) || 0),
                 itemName: validRows.map(r => r.itemName),
-                poBalQty: validRows.map(r => Number(r.poBalQty)),
-                recQty: validRows.map(r => Number(r.recQty)),
-                rejQty: validRows.map(r => Number(r.rejQty)),
-                okQty: validRows.map(r => Number(r.okQty)),
+                poBalQty: validRows.map(r => Number(r.poBalQty) || 0),
+                recQty: validRows.map(r => Number(r.recQty) || 0),
+                rejQty: validRows.map(r => Number(r.rejQty) || 0),
+                okQty: validRows.map(r => Number(r.okQty) || 0),
                 packingDetail: validRows.map(r => r.packingDetail || ""),
             };
 
@@ -226,6 +250,16 @@ export default function InwardQualityControlPage() {
                         const rej = Number(newRow.rejQty) || 0;
                         const ok = rec - rej;
                         newRow.okQty = String(ok > 0 ? ok : 0);
+                        
+                        if (rej > 0 && ok <= 0) {
+                            newRow.code = "5000"; // Fully rejected
+                        } else if (ok > 0) {
+                            newRow.code = "2000"; // Approved (or partially approved)
+                        } else if (rec > 0) {
+                            newRow.code = "2000"; // Has received qty
+                        } else {
+                            newRow.code = "";
+                        }
                     }
                     
                     return newRow;
@@ -237,6 +271,21 @@ export default function InwardQualityControlPage() {
     };
 
     const btnClass = "bg-white border border-zinc-400 px-6 py-1.5 text-[15px] text-black hover:bg-zinc-50 active:bg-zinc-100 min-w-[85px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center";
+
+    const buildPrintParams = (includeStatus = true) => {
+        const params = new URLSearchParams();
+        if (printVendorId) params.set("vendorId", printVendorId);
+        if (printFromDate) params.set("fromDate", printFromDate);
+        if (printToDate) params.set("toDate", printToDate);
+        if (printItemName) params.set("itemName", printItemName);
+        if (includeStatus && printStatus) params.set("status", printStatus);
+        return params;
+    };
+
+    const openPrint = (path: string, includeStatus = true) => {
+        window.open(`${path}?${buildPrintParams(includeStatus).toString()}`, "_blank");
+        setShowPrintModal(false);
+    };
 
     return (
         <section className="mx-auto mt-10 w-full max-w-6xl bg-[#f0f0f0] p-8 shadow-sm text-black">
@@ -295,7 +344,7 @@ export default function InwardQualityControlPage() {
                     </div>
 
                     <div className="flex items-center">
-                        <button type="button" onClick={() => handlePOChange(values.purchaseOrderId)} disabled={!isEditing} className="bg-white border border-zinc-300 px-4 py-1 text-sm hover:bg-zinc-50 disabled:opacity-50">Find Po</button>
+                        <button type="button" onClick={() => handlePOChange(values.purchaseOrderId ?? "")} disabled={!isEditing} className="bg-white border border-zinc-300 px-4 py-1 text-sm hover:bg-zinc-50 disabled:opacity-50">Find Po</button>
                     </div>
                 </div>
 
@@ -421,7 +470,7 @@ export default function InwardQualityControlPage() {
                                         <input
                                             type="number"
                                             value={row.okQty}
-                                            readOnly
+                                            onChange={(e) => updateItemRow(index, "okQty", e.target.value)}
                                             disabled={!isEditing}
                                             className="w-full bg-transparent px-2 py-1 text-center outline-none disabled:bg-[#f3f4f6] text-black font-medium"
                                         />
@@ -447,9 +496,96 @@ export default function InwardQualityControlPage() {
                     <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
                     <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isNewMode || isEditing}>Edit</button>
                     <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
-                    <button type="button" className={btnClass}>Pint</button>
+                    <button type="button" onClick={() => setShowPrintModal(true)} className={btnClass}>Print</button>
                 </div>
             </form>
+
+            {/* Print Modal */}
+            {showPrintModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/30 backdrop-blur-sm">
+                    <div className="w-full max-w-lg border border-zinc-400 bg-[#f0f0f0] p-6 shadow-2xl">
+                        <h2 className="mb-4 text-xl font-bold text-black text-center">Print Quality Control Report</h2>
+                        <div className="flex flex-col gap-4 border border-zinc-300 bg-[#f0f0f0] p-4">
+                            <div className="flex items-center gap-2">
+                                <label className="text-[13px] font-medium w-24">Vendor Name</label>
+                                <select
+                                    value={printVendorId}
+                                    onChange={(e: any) => setPrintVendorId(e.target.value)}
+                                    className="border border-zinc-300 px-2 py-1 outline-none flex-1 bg-white text-black text-[13px]"
+                                >
+                                    {vendors.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-[13px] font-medium w-24">Item</label>
+                                <select
+                                    value={printItemName}
+                                    onChange={(e: any) => setPrintItemName(e.target.value)}
+                                    className="border border-zinc-300 px-2 py-1 outline-none flex-1 bg-white text-black text-[13px]"
+                                >
+                                    {itemOptions.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-[13px] font-medium w-24">Status</label>
+                                <select
+                                    value={printStatus}
+                                    onChange={(e: any) => setPrintStatus(e.target.value)}
+                                    className="border border-zinc-300 px-2 py-1 outline-none flex-1 bg-white text-black text-[13px]"
+                                >
+                                    <option value="">All (OK + Rejected)</option>
+                                    <option value="ok">OK Only</option>
+                                    <option value="rejected">Rejected Only</option>
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[13px] font-medium w-16">From</label>
+                                    <input
+                                        type="date"
+                                        value={printFromDate}
+                                        onChange={(e: any) => setPrintFromDate(e.target.value)}
+                                        className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white text-black text-[13px]"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[13px] font-medium w-12 text-right">To</label>
+                                    <input
+                                        type="date"
+                                        value={printToDate}
+                                        onChange={(e: any) => setPrintToDate(e.target.value)}
+                                        className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white text-black text-[13px]"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-6 flex flex-wrap justify-end gap-3">
+                            <button type="button" onClick={() => setShowPrintModal(false)} className={btnClass}>Cancel</button>
+                            <button
+                                type="button"
+                                onClick={() => openPrint("/print/inward-quality-control-report")}
+                                className={btnClass}
+                            >
+                                Print Report
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openPrint("/print/inward-quality-control-item-wise")}
+                                className={btnClass}
+                            >
+                                Print Item Wise
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openPrint("/print/purchase-order-balance", false)}
+                                className={btnClass}
+                            >
+                                Print PO Balance
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </section>
     );
 }

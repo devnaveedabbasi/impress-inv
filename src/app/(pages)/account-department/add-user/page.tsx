@@ -112,7 +112,7 @@ export default function AddUserPage() {
         },
     });
 
-    const isSelfUpdate = !isNewMode && currentUser && String(currentUser.id) === String(values.id);
+    const isSelfUpdate = !isNewMode && !!currentUser && String(currentUser.id) === String(values.id);
 
     const handleIdBlur = async () => {
         if (!values.id) return;

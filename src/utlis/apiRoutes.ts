@@ -4,6 +4,8 @@
 export const LOGIN = "/auth/login"
 export const LOGOUT = "/auth/logout"
 export const USER_DETAILS = '/auth/me'
+export const CHANGE_PASSWORD = '/auth/change-password'
+export const UPDATE_PROFILE = '/auth/update-profile'
 
 export const ROLES = "/roles"
 export const USERS = "/users"
