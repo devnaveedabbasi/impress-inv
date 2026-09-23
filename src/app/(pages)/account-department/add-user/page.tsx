@@ -232,7 +232,7 @@ export default function AddUserPage() {
                             value={values.role}
                             onChange={(e) => handleSelectChange("role")(e)}
                             error={errors.role}
-                            disabled={!isEditing || isSelfUpdate}
+                            disabled={!isEditing || !!isSelfUpdate}
                         />
                     </div>
 
