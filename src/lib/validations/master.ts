@@ -153,16 +153,11 @@ export const inventorySchema = z.object({
   colorRows: z
     .array(
       z.object({
-        stationId: z.string().min(1, { message: "Station is required" }),
-        color: z.string().trim().min(1, { message: "Color is required" }),
-        qty: z
-          .string()
-          .min(1, { message: "Qty is required" })
-          .refine((v) => !Number.isNaN(Number(v)), { message: "Qty must be a valid number" })
-          .refine((v) => Number(v) >= 0, { message: "Qty cannot be negative" }),
+        stationId: z.string().optional(),
+        color: z.string().optional(),
+        qty: z.string().optional(),
       })
-    )
-    .min(1, { message: "Add at least one color" }),
+    ),
 });
 
 export type InventoryFormValues = z.infer<typeof inventorySchema>;
