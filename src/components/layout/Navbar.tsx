@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Icon } from "@iconify/react";
 import { NAV_ITEMS, type NavItem } from "./nav-items";
 import { ProfileDropdown } from "./ProfileDropdown";
@@ -12,6 +13,11 @@ const MENU_WIDTH = 224;
 function DropdownItems({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const [side, setSide] = useState<"right" | "left">("right");
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setOpen(null);
+  }, [pathname]);
 
   const handleOpen = (
     label: string,
@@ -80,6 +86,12 @@ export function Navbar() {
   const [menuSide, setMenuSide] = useState<"left" | "right">("left");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const { hasPermission } = usePermissions();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setOpenMenu(null);
+    setIsProfileOpen(false);
+  }, [pathname]);
 
   const filterNavItems = (items: NavItem[]): NavItem[] => {
     return items

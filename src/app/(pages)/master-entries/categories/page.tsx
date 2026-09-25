@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
+import useDebounce from "@/hooks/useDebounce";
 import { categorySchema, type CategoryFormValues } from "@/lib/validations/master";
 import { CATEGORIES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
@@ -22,16 +23,23 @@ export default function CategoryPage() {
     const canCreate = hasPermission("category", "create");
     const canUpdate = hasPermission("category", "update");
     const canView = hasPermission("category", "view");
+    const [isIdLoading, setIsIdLoading] = useState(true);
+    const [nextId, setNextId] = useState<string>("");
 
 
     const fetchNextId = async () => {
+        setIsIdLoading(true);
         try {
             const { data } = await api.get(`${CATEGORIES}/next-id`);
-            setValues({ id: String(data.data.nextId), name: "" });
+            const fetchedNextId = String(data.data.nextId);
+            setNextId(fetchedNextId);
+            setValues({ id: fetchedNextId, name: "" });
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
             console.error("Failed to fetch next ID", error);
+        } finally {
+            setIsIdLoading(false);
         }
     };
 
@@ -66,19 +74,31 @@ export default function CategoryPage() {
         },
     });
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    
+    const debouncedId = useDebounce(values?.id, 500);
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+    useEffect(() => {
+        const fetchDebouncedId = async () => {
+        if (!debouncedId) return;
+
+        if (debouncedId === String(nextId)) {
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: nextId });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
+        setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${CATEGORIES}/${values.id}`);
+            const { data } = await api.get(`${CATEGORIES}/${debouncedId}`);
             if (data.data) {
                 setValues({ id: String(data.data.id), name: data.data.name });
                 setIsNewMode(false);
@@ -86,7 +106,7 @@ export default function CategoryPage() {
                 toast.success("Category found");
             } else {
                 toast.error("Category not found");
-                setValues({ ...values, name: "" });
+                setValues({ ...initialValues, id: nextId });
                 setIsNewMode(true);
             }
         } catch (error: any) {
@@ -95,10 +115,14 @@ export default function CategoryPage() {
             } else {
                 toast.error("Invalid Category ID");
             }
-            setValues({ ...values, name: "" });
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
+        } finally {
+            setIsIdLoading(false);
         }
-    };
+    }
+        fetchDebouncedId();
+    }, [debouncedId]);;
 
     return (
         <section className="mx-auto mt-10 w-full max-w-110 bg-form-bg p-6 shadow-xl sm:p-8">
@@ -106,12 +130,14 @@ export default function CategoryPage() {
 
             <form onSubmit={handleSubmit} noValidate className="space-y-3">
                 <LabeledField
-                    type="number"
+                    type={isIdLoading ? "text" : "number"}
                     label="Category ID"
-                    value={values.id || ""}
+                    value={isIdLoading ? "Loading..." : values.id || ""}
                     onChange={handleInputChange("id")}
-                    onBlur={handleIdBlur}
                     error={errors.id}
+                    disabled={isIdLoading}
+                min={1}
+                    max={Number(nextId) || 1}
                 />
                 <LabeledField
                     label="Category Name"

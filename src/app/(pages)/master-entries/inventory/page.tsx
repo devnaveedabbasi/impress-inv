@@ -6,6 +6,7 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
+import useDebounce from "@/hooks/useDebounce";
 import { inventorySchema, type InventoryFormValues } from "@/lib/validations/master";
 import { INVENTORY, CATEGORIES, DEPARTMENTS, STATIONS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
@@ -63,16 +64,24 @@ export default function InventoryPage() {
     const canCreate = hasPermission("inventory", "create");
     const canUpdate = hasPermission("inventory", "update");
     const canView = hasPermission("inventory", "view");
+    const [isIdLoading, setIsIdLoading] = useState(true);
+    const [nextId, setNextId] = useState<string>("");
+    const [isOptionsLoading, setIsOptionsLoading] = useState(true);
 
 
     const fetchNextId = async () => {
+        setIsIdLoading(true);
         try {
             const { data } = await api.get(`${INVENTORY}/next-id`);
-            setValues({ ...initialValues, id: String(data.data.nextId) });
+            const fetchedNextId = String(data.data.nextId);
+            setNextId(fetchedNextId);
+            setValues({ ...initialValues, id: fetchedNextId });
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
             console.error("Failed to fetch next inventory ID", error);
+        } finally {
+            setIsIdLoading(false);
         }
     };
 
@@ -127,19 +136,31 @@ export default function InventoryPage() {
         },
     });
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    
+    const debouncedId = useDebounce(values?.id, 500);
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+    useEffect(() => {
+        const fetchDebouncedId = async () => {
+        if (!debouncedId) return;
+
+        if (debouncedId === String(nextId)) {
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: nextId });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
+        setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${INVENTORY}/${values.id}`);
+            const { data } = await api.get(`${INVENTORY}/${debouncedId}`);
             if (data.data) {
                 const inv = data.data;
                 const fetchedRows = (inv.color || []).map((c: string, i: number) => ({
@@ -167,7 +188,7 @@ export default function InventoryPage() {
                 toast.success("Inventory item found");
             } else {
                 toast.error("Inventory item not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: nextId });
                 setIsNewMode(true);
             }
         } catch (error: any) {
@@ -176,10 +197,14 @@ export default function InventoryPage() {
             } else {
                 toast.error("Inventory item not found");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
+        } finally {
+            setIsIdLoading(false);
         }
-    }; 
+    }
+        fetchDebouncedId();
+    }, [debouncedId]);; 
 
     const updateColorRow = (index: number, field: "stationId" | "color" | "qty", value: string) => {
         setValues((prev) => ({
@@ -195,20 +220,21 @@ export default function InventoryPage() {
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-2">
                     <LabeledField
-                        type="number"
-                        label="Inventory ID"
-                        value={values.id || ""}
+                    type={isIdLoading ? "text" : "number"}
+                    label="Inventory ID"
+                    value={isIdLoading ? "Loading..." : values.id || ""}
                         onChange={handleInputChange("id")}
-                        onBlur={handleIdBlur}
                         error={errors.id}
                         wrapperClassName="w-32"
-                    />
+                    min={1}
+                    max={Number(nextId) || 1}
+                />
                     <LabeledField
                         label="Item Name"
                         value={values.itemName}
                         onChange={handleInputChange("itemName")}
                         error={errors.itemName}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isOptionsLoading}
                         maxLength={200}
                     />
 
@@ -218,8 +244,8 @@ export default function InventoryPage() {
                         value={values.categoryId}
                         onChange={handleSelectChange("categoryId")}
                         error={errors.categoryId}
-                        disabled={!isEditing}
-                        placeholder="Select Category"
+                        disabled={!isEditing || isOptionsLoading}
+                        placeholder={isOptionsLoading ? "Loading Category..." : "Select Category"}
                     />
                     <LabeledSelect
                         label="Department"
@@ -227,8 +253,8 @@ export default function InventoryPage() {
                         value={values.departmentId}
                         onChange={handleSelectChange("departmentId")}
                         error={errors.departmentId}
-                        disabled={!isEditing}
-                        placeholder="Select Department"
+                        disabled={!isEditing || isOptionsLoading}
+                        placeholder={isOptionsLoading ? "Loading Department..." : "Select Department"}
                     />
 
                     <LabeledField
@@ -237,7 +263,7 @@ export default function InventoryPage() {
                         value={values.unitPerBike}
                         onChange={handleInputChange("unitPerBike")}
                         error={errors.unitPerBike}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isOptionsLoading}
                         min={0}
                     />
 
@@ -247,7 +273,7 @@ export default function InventoryPage() {
                         value={values.pack}
                         onChange={handleInputChange("pack")}
                         error={errors.pack}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isOptionsLoading}
                         min={1}
                     />
                     <LabeledField
@@ -256,14 +282,14 @@ export default function InventoryPage() {
                         value={values.rate}
                         onChange={handleInputChange("rate")}
                         error={errors.rate}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isOptionsLoading}
                         min={0}
                         wrapperClassName="md:col-span-2"
                     />
                 </div>
 
                 <div className="max-h-[400px] overflow-y-auto border border-zinc-400 bg-white">
-                    <table className="w-full border-collapse text-sm text-black relative">
+                    <table className="w-full border-collapse text-sm text-black relative bg-white">
                         <thead className="sticky top-0 z-10 bg-white">
                             <tr className="border-b border-zinc-400">
                                 <th className="border-r border-zinc-400 px-2 py-1.5 text-center font-medium w-1/2">Station</th>
@@ -278,7 +304,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.stationId}
                                             onChange={(e) => updateColorRow(index, "stationId", e.target.value)}
-                                            disabled={!isEditing}
+                                            disabled={!isEditing || isOptionsLoading}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>
@@ -289,7 +315,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.color}
                                             onChange={(e) => updateColorRow(index, "color", e.target.value)}
-                                            disabled={!isEditing}
+                                            disabled={!isEditing || isOptionsLoading}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>
@@ -300,7 +326,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.qty}
                                             onChange={(e) => updateColorRow(index, "qty", e.target.value)}
-                                            disabled={!isEditing}
+                                            disabled={!isEditing || isOptionsLoading}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>

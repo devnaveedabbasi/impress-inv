@@ -5,6 +5,7 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
+import useDebounce from "@/hooks/useDebounce";
 import { vendorSchema, type VendorFormValues } from "@/lib/validations/master";
 import { VENDORS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
@@ -35,6 +36,7 @@ export default function VendorPage() {
     const [cities, setCities] = useState<{ label: string; value: string }[]>([]);
 
     const fetchProvinces = async () => {
+        setIsProvincesLoading(true);
         try {
             const { data } = await api.get(PROVINCES);
             if (data.data) {
@@ -43,6 +45,8 @@ export default function VendorPage() {
         } catch (error) {
             console.error("Failed to fetch provinces", error);
             toast.error("Failed to load provinces");
+        } finally {
+            setIsProvincesLoading(false);
         }
     };
 
@@ -51,6 +55,7 @@ export default function VendorPage() {
             setCities([]);
             return;
         }
+        setIsCitiesLoading(true);
         try {
             const { data } = await api.get(`${CITIES}/province/${provinceId}`);
             if (data.data) {
@@ -59,23 +64,34 @@ export default function VendorPage() {
         } catch (error) {
             console.error("Failed to fetch cities", error);
             toast.error("Failed to load cities");
+        } finally {
+            setIsCitiesLoading(false);
         }
     };
     const { hasPermission } = usePermissions();
     const canCreate = hasPermission("vendor", "create");
     const canUpdate = hasPermission("vendor", "update");
     const canView = hasPermission("vendor", "view");
+    const [isIdLoading, setIsIdLoading] = useState(true);
+    const [nextId, setNextId] = useState<string>("");
+    const [isProvincesLoading, setIsProvincesLoading] = useState(true);
+    const [isCitiesLoading, setIsCitiesLoading] = useState(false);
 
 
     const fetchNextId = async () => {
+        setIsIdLoading(true);
         try {
             const { data } = await api.get(`${VENDORS}/next-id`);
-            setValues({ ...initialValues, id: String(data.data.nextId) });
+            const fetchedNextId = String(data.data.nextId);
+            setNextId(fetchedNextId);
+            setValues({ ...initialValues, id: fetchedNextId });
             setCities([]);
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
             console.error("Failed to fetch next vendor ID", error);
+        } finally {
+            setIsIdLoading(false);
         }
     };
 
@@ -135,19 +151,31 @@ export default function VendorPage() {
         fetchCitiesByProvince(provinceId);
     };
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    
+    const debouncedId = useDebounce(values?.id, 500);
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+    useEffect(() => {
+        const fetchDebouncedId = async () => {
+        if (!debouncedId) return;
+
+        if (debouncedId === String(nextId)) {
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: nextId });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
+        setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${VENDORS}/${values.id}`);
+            const { data } = await api.get(`${VENDORS}/${debouncedId}`);
             if (data.data) {
                 const v = data.data;
                 const provinceId = String(v.provinceId);
@@ -174,7 +202,7 @@ export default function VendorPage() {
                 toast.success("Vendor found");
             } else {
                 toast.error("Vendor not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: nextId });
                 setCities([]);
                 setIsNewMode(true);
             }
@@ -184,11 +212,15 @@ export default function VendorPage() {
             } else {
                 toast.error("Vendor not found");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: nextId });
             setCities([]);
             setIsNewMode(true);
+        } finally {
+            setIsIdLoading(false);
         }
-    };
+    }
+        fetchDebouncedId();
+    }, [debouncedId]);;
 
     return (
         <section className="mx-auto mt-10 w-full max-w-4xl bg-form-bg p-6 shadow-xl sm:p-8">
@@ -197,14 +229,15 @@ export default function VendorPage() {
             <form onSubmit={handleSubmit} noValidate className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
                     <LabeledField
-                        type="number"
+                        type={isIdLoading ? "text" : "number"}
                         label="Vendor ID"
-                        value={values.id || ""}
+                        value={isIdLoading ? "Loading..." : values.id || ""}
                         onChange={handleInputChange("id")}
-                        onBlur={handleIdBlur}
                         error={errors.id}
                         wrapperClassName="w-24"
-                    />
+                    min={1}
+                    max={Number(nextId) || 1}
+                />
                     <LabeledField
                         label="Vendor Name"
                         value={values.vendorName}
@@ -231,8 +264,8 @@ export default function VendorPage() {
                         value={values.provinceId}
                         onChange={handleProvinceChange}
                         error={errors.provinceId}
-                        disabled={!isEditing}
-                        placeholder="Select Province"
+                        disabled={!isEditing || isProvincesLoading}
+                        placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
                     />
                     <LabeledSelect
                         label="City"
@@ -240,8 +273,8 @@ export default function VendorPage() {
                         value={values.cityId}
                         onChange={handleSelectChange("cityId")}
                         error={errors.cityId}
-                        disabled={!isEditing || !values.provinceId}
-                        placeholder={values.provinceId ? "Select City" : "Select Province first"}
+                        disabled={!isEditing || !values.provinceId || isCitiesLoading}
+                        placeholder={isCitiesLoading ? "Loading cities..." : values.provinceId ? "Select City" : "Select Province first"}
                     />
 
                     <LabeledField

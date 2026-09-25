@@ -6,6 +6,7 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { useForm } from "@/hooks/useForm";
+import useDebounce from "@/hooks/useDebounce";
 import { citySchema, type CityFormValues } from "@/lib/validations/master";
 import { CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
@@ -27,20 +28,29 @@ export default function CityPage() {
     const canCreate = hasPermission("city", "create");
     const canUpdate = hasPermission("city", "update");
     const canView = hasPermission("city", "view");
+    const [isIdLoading, setIsIdLoading] = useState(true);
+    const [nextId, setNextId] = useState<string>("");
+    const [isProvincesLoading, setIsProvincesLoading] = useState(true);
 
 
     const fetchNextId = async () => {
+        setIsIdLoading(true);
         try {
             const { data } = await api.get(`${CITIES}/next-id`);
-            setValues({ id: String(data.data.nextId), name: "", provinceId: "" });
+            const fetchedNextId = String(data.data.nextId);
+            setNextId(fetchedNextId);
+            setValues({ id: fetchedNextId, name: "", provinceId: "" });
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
             console.error("Failed to fetch next ID", error);
+        } finally {
+            setIsIdLoading(false);
         }
     };
 
     const fetchProvinces = async () => {
+        setIsProvincesLoading(true);
         try {
             const { data } = await api.get(PROVINCES);
             if (data.data) {
@@ -53,6 +63,8 @@ export default function CityPage() {
         } catch (error) {
             console.error("Failed to fetch provinces", error);
             toast.error("Failed to load provinces");
+        } finally {
+            setIsProvincesLoading(false);
         }
     };
 
@@ -89,19 +101,31 @@ export default function CityPage() {
         },
     });
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    
+    const debouncedId = useDebounce(values?.id, 500);
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+    useEffect(() => {
+        const fetchDebouncedId = async () => {
+        if (!debouncedId) return;
+
+        if (debouncedId === String(nextId)) {
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: nextId });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
+        setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${CITIES}/${values.id}`);
+            const { data } = await api.get(`${CITIES}/${debouncedId}`);
             if (data.data) {
                 setValues({ 
                     id: String(data.data.id), 
@@ -114,7 +138,7 @@ export default function CityPage() {
             } else {
                 toast.error("City not found");
                 // Clear fields but keep the ID they typed
-                setValues({ ...values, name: "", provinceId: "" });
+                setValues({ ...initialValues, id: nextId });
                 setIsNewMode(true);
             }
         } catch (error: any) {
@@ -123,10 +147,14 @@ export default function CityPage() {
             } else {
                 toast.error("Invalid City ID");
             }
-            setValues({ ...values, name: "", provinceId: "" });
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
+        } finally {
+            setIsIdLoading(false);
         }
-    };
+    }
+        fetchDebouncedId();
+    }, [debouncedId]);;
 
     return (
         <section className="mx-auto mt-10 w-full max-w-110 bg-form-bg p-6 shadow-xl sm:p-8">
@@ -134,12 +162,14 @@ export default function CityPage() {
 
             <form onSubmit={handleSubmit} noValidate className="space-y-3">
                 <LabeledField
-                    type="number"
+                    type={isIdLoading ? "text" : "number"}
                     label="City ID"
-                    value={values.id || ""}
+                    value={isIdLoading ? "Loading..." : values.id || ""}
                     onChange={handleInputChange("id")}
-                    onBlur={handleIdBlur}
                     error={errors.id}
+                    disabled={isIdLoading}
+                min={1}
+                    max={Number(nextId) || 1}
                 />
                 <LabeledField
                     label="City Name"
@@ -154,8 +184,8 @@ export default function CityPage() {
                     value={values.provinceId}
                     onChange={handleSelectChange("provinceId")}
                     error={errors.provinceId}
-                    disabled={!isEditing}
-                    placeholder="Select Province"
+                    disabled={!isEditing || isProvincesLoading}
+                    placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
                 />
 
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-6">

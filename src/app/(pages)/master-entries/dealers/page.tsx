@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useForm } from "@/hooks/useForm";
+import useDebounce from "@/hooks/useDebounce";
 import { dealerSchema, type DealerFormValues } from "@/lib/validations/master";
 import { DEALERS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
@@ -35,6 +36,7 @@ export default function DealerPage() {
     const [cities, setCities] = useState<{ label: string; value: string }[]>([]);
 
     const fetchProvinces = async () => {
+        setIsProvincesLoading(true);
         try {
             const { data } = await api.get(PROVINCES);
             if (data.data) {
@@ -42,6 +44,8 @@ export default function DealerPage() {
             }
         } catch (error) {
             console.error("Failed to fetch provinces", error);
+        } finally {
+            setIsProvincesLoading(false);
         }
     };
 
@@ -50,6 +54,7 @@ export default function DealerPage() {
             setCities([]);
             return;
         }
+        setIsCitiesLoading(true);
         try {
             const { data } = await api.get(`${CITIES}/province/${provinceId}`);
             if (data.data) {
@@ -57,23 +62,34 @@ export default function DealerPage() {
             }
         } catch (error) {
             console.error("Failed to fetch cities", error);
+        } finally {
+            setIsCitiesLoading(false);
         }
     };
     const { hasPermission } = usePermissions();
     const canCreate = hasPermission("dealer", "create");
     const canUpdate = hasPermission("dealer", "update");
     const canView = hasPermission("dealer", "view");
+    const [isIdLoading, setIsIdLoading] = useState(true);
+    const [nextId, setNextId] = useState<string>("");
+    const [isProvincesLoading, setIsProvincesLoading] = useState(true);
+    const [isCitiesLoading, setIsCitiesLoading] = useState(false);
 
 
     const fetchNextId = async () => {
+        setIsIdLoading(true);
         try {
             const { data } = await api.get(`${DEALERS}/next-id`);
-            setValues({ ...initialValues, id: String(data.data.nextId) });
+            const fetchedNextId = String(data.data.nextId);
+            setNextId(fetchedNextId);
+            setValues({ ...initialValues, id: fetchedNextId });
             setCities([]);
             setIsNewMode(true);
             setIsEditing(true);
         } catch (error) {
             console.error("Failed to fetch next dealer ID", error);
+        } finally {
+            setIsIdLoading(false);
         }
     };
 
@@ -132,19 +148,31 @@ export default function DealerPage() {
         fetchCitiesByProvince(provinceId);
     };
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    
+    const debouncedId = useDebounce(values?.id, 500);
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+    useEffect(() => {
+        const fetchDebouncedId = async () => {
+        if (!debouncedId) return;
+
+        if (debouncedId === String(nextId)) {
+            setValues({ ...initialValues, id: nextId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
+        if (!canView) {
+            toast.error("You do not have permission to view or search for this record.");
+            setValues({ ...initialValues, id: nextId });
+            setIsNewMode(true);
+            setIsEditing(true);
+            return;
+        }
+
+        setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${DEALERS}/${values.id}`);
+            const { data } = await api.get(`${DEALERS}/${debouncedId}`);
             if (data.data) {
                 const v = data.data;
                 const provinceId = String(v.provinceId);
@@ -170,7 +198,7 @@ export default function DealerPage() {
                 toast.success("Dealer found");
             } else {
                 toast.error("Dealer not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: nextId });
                 setCities([]);
                 setIsNewMode(true);
                 setIsEditing(true);
@@ -181,12 +209,16 @@ export default function DealerPage() {
             } else {
                 toast.error("Invalid Dealer ID");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: nextId });
             setCities([]);
             setIsNewMode(true);
             setIsEditing(true);
+        } finally {
+            setIsIdLoading(false);
         }
-    };
+    }
+        fetchDebouncedId();
+    }, [debouncedId]);;
 
     const selectedRegion = provinces.find(p => p.value === values.provinceId)?.label || "";
 
@@ -204,14 +236,15 @@ export default function DealerPage() {
                     <div className="flex-1 w-full space-y-1.5">
                         {/* Dealer ID field included as per original logic */}
                         <LabeledField
-                            type="number"
-                            label="Dealer ID"
-                            value={values.id || ""}
+                    type={isIdLoading ? "text" : "number"}
+                    label="Dealer ID"
+                    value={isIdLoading ? "Loading..." : values.id || ""}
                             onChange={handleInputChange("id")}
-                            onBlur={handleIdBlur}
                             error={errors.id}
                             wrapperClassName="max-w-[200px]"
-                        />
+                        min={1}
+                    max={Number(nextId) || 1}
+                />
                         <LabeledField
                             label="Dealership Name"
                             value={values.dealarShipName}
@@ -322,8 +355,8 @@ export default function DealerPage() {
                             value={values.provinceId}
                             onChange={(val) => handleProvinceChange(val as string)}
                             error={errors.provinceId}
-                            disabled={!isEditing}
-                            placeholder="Select Province"
+                            disabled={!isEditing || isProvincesLoading}
+                            placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
                         />
                         <LabeledSelect
                             label="City"
@@ -331,8 +364,8 @@ export default function DealerPage() {
                             value={values.cityId}
                             onChange={(e) => handleSelectChange("cityId")(e)}
                             error={errors.cityId}
-                            disabled={!isEditing || !values.provinceId}
-                            placeholder={values.provinceId ? "Select City" : "Select Province first"}
+                            disabled={!isEditing || !values.provinceId || isCitiesLoading}
+                            placeholder={isCitiesLoading ? "Loading cities..." : values.provinceId ? "Select City" : "Select Province first"}
                         />
 
 
