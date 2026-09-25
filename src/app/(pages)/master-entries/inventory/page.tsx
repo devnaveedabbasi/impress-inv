@@ -58,6 +58,8 @@ export default function InventoryPage() {
             setStations((stationRes.data.data || []).map((s: any) => ({ label: s.name, value: String(s.id) })));
         } catch (error) {
             console.error("Failed to fetch dropdown options", error);
+        } finally {
+            setIsOptionsLoading(false);
         }
     };
     const { hasPermission } = usePermissions();
@@ -206,6 +208,22 @@ export default function InventoryPage() {
         fetchDebouncedId();
     }, [debouncedId]);; 
 
+    const isRowDisabled = (index: number) => {
+        if (!isEditing || isOptionsLoading) return true;
+        if (index === 0) return false;
+        const prevRow = values.colorRows[index - 1];
+        return !(prevRow.stationId && prevRow.color && prevRow.qty);
+    };
+
+    const addRow = () => {
+        setValues((prev) => ({
+            ...prev,
+            colorRows: [...prev.colorRows, defaultRow()],
+        }));
+    };
+
+    const canAddRow = values.colorRows.length > 0 && values.colorRows.every(r => r.stationId && r.color && r.qty);
+
     const updateColorRow = (index: number, field: "stationId" | "color" | "qty", value: string) => {
         setValues((prev) => ({
             ...prev,
@@ -304,7 +322,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.stationId}
                                             onChange={(e) => updateColorRow(index, "stationId", e.target.value)}
-                                            disabled={!isEditing || isOptionsLoading}
+                                            disabled={isRowDisabled(index)}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>
@@ -315,7 +333,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.color}
                                             onChange={(e) => updateColorRow(index, "color", e.target.value)}
-                                            disabled={!isEditing || isOptionsLoading}
+                                            disabled={isRowDisabled(index)}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>
@@ -326,7 +344,7 @@ export default function InventoryPage() {
                                         <select
                                             value={row.qty}
                                             onChange={(e) => updateColorRow(index, "qty", e.target.value)}
-                                            disabled={!isEditing || isOptionsLoading}
+                                            disabled={isRowDisabled(index)}
                                             className="w-full bg-transparent px-2 py-1.5 text-[13px] text-black font-medium outline-none disabled:bg-[#f3f4f6] disabled:text-zinc-500"
                                         >
                                             <option value="" disabled hidden></option>
