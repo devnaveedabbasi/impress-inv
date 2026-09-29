@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Icon } from "@iconify/react";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
@@ -12,6 +11,12 @@ import { PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ProvinceRow = {
+    id: number;
+    name: string;
+};
 
 const initialValues: ProvinceFormValues = {
     id: "",
@@ -28,6 +33,10 @@ export default function ProvincePage() {
     const canView = hasPermission("province", "view");
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [provinces, setProvinces] = useState<ProvinceRow[]>([]);
+    const [isProvincesLoading, setIsProvincesLoading] = useState(false);
+    const [provincesError, setProvincesError] = useState("");
 
 
     const fetchNextId = async () => {
@@ -43,6 +52,20 @@ export default function ProvincePage() {
             console.error("Failed to fetch next ID", error);
         } finally {
             setIsIdLoading(false);
+        }
+    };
+
+    const fetchAllProvinces = async () => {
+        setIsViewAllOpen(true);
+        setIsProvincesLoading(true);
+        setProvincesError("");
+        try {
+            const { data } = await api.get(PROVINCES);
+            setProvinces(data.data || []);
+        } catch (error: any) {
+            setProvincesError(error.response?.data?.message || "Failed to fetch provinces");
+        } finally {
+            setIsProvincesLoading(false);
         }
     };
 
@@ -79,6 +102,11 @@ export default function ProvincePage() {
 
     
     const debouncedId = useDebounce(values?.id, 500);
+
+    const provinceColumns: ViewAllColumn<ProvinceRow>[] = [
+        { key: "id", header: "Province ID" },
+        { key: "name", header: "Province Name" },
+    ];
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
@@ -147,7 +175,7 @@ export default function ProvincePage() {
                     disabled={!isEditing}
                 />
 
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-6">
+                <div className="grid grid-cols-2 gap-3 pt-6 sm:flex sm:flex-wrap sm:items-center sm:justify-center">
                     <Button
                         type="button"
                         variant="secondary"
@@ -157,6 +185,16 @@ export default function ProvincePage() {
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        shape="rounded"
+                        onClick={fetchAllProvinces}
+                        disabled={isSubmitting || !canView}
+                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
+                    >
+                        View All
                     </Button>
                     <Button
                         type="button"
@@ -181,6 +219,25 @@ export default function ProvincePage() {
                     </Button>
                 </div>
             </form>
+
+            <ViewAllModal
+                key={isViewAllOpen ? "open" : "closed"}
+                isOpen={isViewAllOpen}
+                title="All Provinces"
+                rows={provinces}
+                columns={provinceColumns}
+                searchKeys={["id", "name"]}
+                isLoading={isProvincesLoading}
+                error={provincesError}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(province) => {
+                    setValues({ id: String(province.id), name: province.name });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    setIsViewAllOpen(false);
+                }}
+                onDelete={() => undefined}
+            />
         </section>
     );
 }

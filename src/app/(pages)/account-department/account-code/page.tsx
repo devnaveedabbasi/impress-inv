@@ -7,6 +7,9 @@ import { useForm } from "@/hooks/useForm";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ACCOUNT_CODES } from "@/utlis/apiRoutes";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const initialValues: AccountCodeFormValues = {
     id: "",
@@ -39,6 +42,11 @@ export default function AccountCodePage() {
     const canCreate = hasPermission("account_code", "create");
     const canUpdate = hasPermission("account_code", "update");
     const canView = hasPermission("account_code", "view");
+    const accountCodeColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Account ID" },
+        { key: "headName", header: "Head Name" },
+        { key: "group", header: "Group" },
+    ];
 
 
     const fetchNextId = async () => {
@@ -95,18 +103,18 @@ export default function AccountCodePage() {
         },
     });
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    const handleIdBlur = async (selectedId = values.id) => {
+        if (!selectedId) return;
 
         if (!canView) {
             toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
         try {
-            const { data } = await api.get(`${ACCOUNT_CODES}/${values.id}`);
+            const { data } = await api.get(`${ACCOUNT_CODES}/${selectedId}`);
             if (data.data) {
                 const ac = data.data;
                 let fetchedItems = ac.items?.length > 0 ? ac.items.map((it: any) => ({
@@ -134,7 +142,7 @@ export default function AccountCodePage() {
                 toast.success("Account Form found");
             } else {
                 toast.error("Account Form not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: selectedId });
                 setIsNewMode(true);
                 setIsEditing(true);
             }
@@ -144,7 +152,7 @@ export default function AccountCodePage() {
             } else {
                 toast.error("Invalid Head Code");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
         }
@@ -186,7 +194,7 @@ export default function AccountCodePage() {
                             type="number"
                             value={values.id || ""}
                             onChange={handleInputChange("id")}
-                            onBlur={handleIdBlur}
+                            onBlur={() => void handleIdBlur()}
                             className={`border border-zinc-300 px-2 py-1 outline-none text-sm w-32 text-black ${errors.id ? "border-red-500" : ""}`}
                         />
                         {errors.id && <span className="text-red-500 text-xs">{errors.id}</span>}
@@ -309,6 +317,18 @@ export default function AccountCodePage() {
                 {/* Action Buttons */}
                 <div className="flex items-center justify-center gap-4">
                     <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                    <ViewAllResource
+                        endpoint={ACCOUNT_CODES}
+                        title="All Account Codes"
+                        columns={accountCodeColumns}
+                        searchKeys={["id", "headName", "group"]}
+                        canView={canView}
+                        onSelectId={(id) => {
+                            const selectedId = String(id);
+                            setValues((prev) => ({ ...prev, id: selectedId }));
+                            void handleIdBlur(selectedId);
+                        }}
+                    />
                     <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
                     <button type="button" onClick={async () => {
                         if (!values.id) return;

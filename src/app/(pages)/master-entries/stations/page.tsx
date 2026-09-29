@@ -10,6 +10,12 @@ import { STATIONS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type StationRow = {
+    id: number;
+    name: string;
+};
 
 const initialValues: StationFormValues = {
     id: "",
@@ -25,6 +31,10 @@ export default function StationPage() {
     const canView = hasPermission("station", "view");
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [stations, setStations] = useState<StationRow[]>([]);
+    const [isStationsLoading, setIsStationsLoading] = useState(false);
+    const [stationsError, setStationsError] = useState("");
 
 
     const fetchNextId = async () => {
@@ -40,6 +50,20 @@ export default function StationPage() {
             console.error("Failed to fetch next ID", error);
         } finally {
             setIsIdLoading(false);
+        }
+    };
+
+    const fetchAllStations = async () => {
+        setIsViewAllOpen(true);
+        setIsStationsLoading(true);
+        setStationsError("");
+        try {
+            const { data } = await api.get(STATIONS);
+            setStations(data.data || []);
+        } catch (error: any) {
+            setStationsError(error.response?.data?.message || "Failed to fetch stations");
+        } finally {
+            setIsStationsLoading(false);
         }
     };
 
@@ -76,6 +100,11 @@ export default function StationPage() {
 
     
     const debouncedId = useDebounce(values?.id, 500);
+
+    const stationColumns: ViewAllColumn<StationRow>[] = [
+        { key: "id", header: "Station ID" },
+        { key: "name", header: "Station Name" },
+    ];
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
@@ -147,7 +176,7 @@ export default function StationPage() {
                     disabled={!isEditing}
                 />
 
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-6">
+                <div className="grid grid-cols-2 gap-3 pt-6 sm:flex sm:flex-wrap sm:items-center sm:justify-center">
                     <Button
                         type="button"
                         variant="secondary"
@@ -157,6 +186,16 @@ export default function StationPage() {
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        shape="rounded"
+                        onClick={fetchAllStations}
+                        disabled={isSubmitting || !canView}
+                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
+                    >
+                        View All
                     </Button>
                     <Button
                         type="button"
@@ -181,6 +220,25 @@ export default function StationPage() {
                     </Button>
                 </div>
             </form>
+
+            <ViewAllModal
+                key={isViewAllOpen ? "open" : "closed"}
+                isOpen={isViewAllOpen}
+                title="All Stations"
+                rows={stations}
+                columns={stationColumns}
+                searchKeys={["id", "name"]}
+                isLoading={isStationsLoading}
+                error={stationsError}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(station) => {
+                    setValues({ id: String(station.id), name: station.name });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    setIsViewAllOpen(false);
+                }}
+                onDelete={() => undefined}
+            />
         </section>
     );
 }

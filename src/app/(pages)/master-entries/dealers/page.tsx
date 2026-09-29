@@ -9,6 +9,9 @@ import { DEALERS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
@@ -70,6 +73,12 @@ export default function DealerPage() {
     const canCreate = hasPermission("dealer", "create");
     const canUpdate = hasPermission("dealer", "update");
     const canView = hasPermission("dealer", "view");
+    const dealerColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Dealer ID" },
+        { key: "dealarShipName", header: "Dealership" },
+        { key: "name", header: "Contact Person" },
+        { key: "contactNo", header: "Contact" },
+    ];
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
     const [isProvincesLoading, setIsProvincesLoading] = useState(true);
@@ -285,6 +294,14 @@ export default function DealerPage() {
                     {/* Action Buttons - aligned top right in a 2x2 grid to match image */}
                     <div className="grid grid-cols-2 gap-2 shrink-0">
                         <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <ViewAllResource
+                            endpoint={DEALERS}
+                            title="All Dealers"
+                            columns={dealerColumns}
+                            searchKeys={["id", "dealarShipName", "name", "contactNo"]}
+                            canView={canView}
+                            onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                        />
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
 
                         <button type="button" onClick={() => window.open("/print/dealers", "_blank")} className={btnClass}>Print</button>

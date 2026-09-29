@@ -12,6 +12,9 @@ import useDebounce from "@/hooks/useDebounce";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Select } from "@/components/ui/Select";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const initialValues = { id: "", name: "", email: "", password: "", role: "", permissionIds: [] as string[] };
 
@@ -26,6 +29,12 @@ export default function AddUserPage() {
     const canCreate = hasPermission("user", "create");
     const canUpdate = hasPermission("user", "update");
     const canView = hasPermission("user", "view");
+    const userColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "User ID" },
+        { key: "name", header: "Name" },
+        { key: "email", header: "Email" },
+        { key: "role", header: "Role" },
+    ];
 
     const fetchData = async () => {
         try {
@@ -114,10 +123,10 @@ export default function AddUserPage() {
 
     const isSelfUpdate = !isNewMode && !!currentUser && String(currentUser.id) === String(values.id);
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    const handleIdBlur = async (selectedId = values.id) => {
+        if (!selectedId) return;
 
-        if (String(values.id) === "1") {
+        if (String(selectedId) === "1") {
             toast.error("Admin user cannot be modified");
             fetchNextId();
             return;
@@ -125,14 +134,14 @@ export default function AddUserPage() {
 
         if (!canView) {
             toast.error("You do not have permission to view or search for users.");
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
         try {
-            const { data } = await api.get(`${USERS}/${values.id}`);
+            const { data } = await api.get(`${USERS}/${selectedId}`);
             if (data.data) {
                 const u = data.data;
                 setValues({
@@ -148,7 +157,7 @@ export default function AddUserPage() {
                 toast.success("User found");
             } else {
                 toast.error("User not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: selectedId });
                 setIsNewMode(true);
                 setIsEditing(true);
             }
@@ -158,7 +167,7 @@ export default function AddUserPage() {
             } else {
                 toast.error("Invalid User ID");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
         }
@@ -198,7 +207,7 @@ export default function AddUserPage() {
                             label="User ID"
                             value={values.id || ""}
                             onChange={handleInputChange("id")}
-                            onBlur={handleIdBlur}
+                            onBlur={() => void handleIdBlur()}
                             error={errors.id}
                             wrapperClassName="max-w-[200px]"
                         />
@@ -239,6 +248,18 @@ export default function AddUserPage() {
                     {/* Action Buttons */}
                     <div className="grid grid-cols-1 gap-2 shrink-0">
                         <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <ViewAllResource
+                            endpoint={USERS}
+                            title="All Users"
+                            columns={userColumns}
+                            searchKeys={["id", "name", "email", "role"]}
+                            canView={canView}
+                            onSelectId={(id) => {
+                                const selectedId = String(id);
+                                setValues((prev) => ({ ...prev, id: selectedId }));
+                                void handleIdBlur(selectedId);
+                            }}
+                        />
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}>Save</button>
                         <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode || !canUpdate}>Edit</button>
                     </div>

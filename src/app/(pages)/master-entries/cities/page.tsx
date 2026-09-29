@@ -12,6 +12,14 @@ import { CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type CityRow = {
+    id: number;
+    name: string;
+    provinceId: number;
+    provinceName: string;
+};
 
 const initialValues: CityFormValues = {
     id: "",
@@ -31,6 +39,10 @@ export default function CityPage() {
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
     const [isProvincesLoading, setIsProvincesLoading] = useState(true);
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [cities, setCities] = useState<CityRow[]>([]);
+    const [isCitiesLoading, setIsCitiesLoading] = useState(false);
+    const [citiesError, setCitiesError] = useState("");
 
 
     const fetchNextId = async () => {
@@ -65,6 +77,24 @@ export default function CityPage() {
             toast.error("Failed to load provinces");
         } finally {
             setIsProvincesLoading(false);
+        }
+    };
+
+    const fetchAllCities = async () => {
+        setIsViewAllOpen(true);
+        setIsCitiesLoading(true);
+        setCitiesError("");
+        try {
+            const { data } = await api.get(CITIES);
+            const provinceNames = new Map(provinces.map((province) => [province.value, province.label]));
+            setCities((data.data || []).map((city: CityRow) => ({
+                ...city,
+                provinceName: provinceNames.get(String(city.provinceId)) || `Province #${city.provinceId}`,
+            })));
+        } catch (error: any) {
+            setCitiesError(error.response?.data?.message || "Failed to fetch cities");
+        } finally {
+            setIsCitiesLoading(false);
         }
     };
 
@@ -103,6 +133,12 @@ export default function CityPage() {
 
     
     const debouncedId = useDebounce(values?.id, 500);
+
+    const cityColumns: ViewAllColumn<CityRow>[] = [
+        { key: "id", header: "City ID" },
+        { key: "name", header: "City Name" },
+        { key: "provinceName", header: "Province" },
+    ];
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
@@ -188,7 +224,7 @@ export default function CityPage() {
                     placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
                 />
 
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-6">
+                <div className="grid grid-cols-2 gap-3 pt-6 sm:flex sm:flex-wrap sm:items-center sm:justify-center">
                     <Button
                         type="button"
                         variant="secondary"
@@ -198,6 +234,16 @@ export default function CityPage() {
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        shape="rounded"
+                        onClick={fetchAllCities}
+                        disabled={isSubmitting || !canView}
+                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
+                    >
+                        View All
                     </Button>
                     <Button
                         type="button"
@@ -222,6 +268,25 @@ export default function CityPage() {
                     </Button>
                 </div>
             </form>
+
+            <ViewAllModal
+                key={isViewAllOpen ? "open" : "closed"}
+                isOpen={isViewAllOpen}
+                title="All Cities"
+                rows={cities}
+                columns={cityColumns}
+                searchKeys={["id", "name", "provinceName"]}
+                isLoading={isCitiesLoading}
+                error={citiesError}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(city) => {
+                    setValues({ id: String(city.id), name: city.name, provinceId: String(city.provinceId) });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    setIsViewAllOpen(false);
+                }}
+                onDelete={() => undefined}
+            />
         </section>
     );
 }

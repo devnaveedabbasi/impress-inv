@@ -10,6 +10,9 @@ import { PURCHASE_ORDERS, VENDORS, QUOTATIONS, INVENTORY } from "@/utlis/apiRout
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const defaultRow = () => ({ code: "", itemName: "", unit: "", quantity: "", rate: "", amount: "" });
 const initialValues: PurchaseOrderFormValues = {
@@ -59,6 +62,12 @@ export default function PurchaseOrderPage() {
     const canCreate = hasPermission("purchase_order", "create");
     const canUpdate = hasPermission("purchase_order", "update");
     const canView = hasPermission("purchase_order", "view");
+    const purchaseOrderColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "PO ID" },
+        { key: "vendorId", header: "Vendor ID" },
+        { key: "date", header: "Date" },
+        { key: "grandTotal", header: "Grand Total" },
+    ];
 
 
     const fetchNextId = async () => {
@@ -421,10 +430,17 @@ export default function PurchaseOrderPage() {
                     {/* Action Buttons */}
                     <div className="flex gap-2">
                         <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <ViewAllResource
+                            endpoint={PURCHASE_ORDERS}
+                            title="All Purchase Orders"
+                            columns={purchaseOrderColumns}
+                            searchKeys={["id", "vendorId", "date", "grandTotal"]}
+                            canView={canView}
+                            onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                        />
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
-                        <button type="button" className={btnClass}>Print</button>
                         <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>
-                        <button type="button" className={btnClass}>Rate List</button>
+
                     </div>
 
                     {/* Totals Box */}

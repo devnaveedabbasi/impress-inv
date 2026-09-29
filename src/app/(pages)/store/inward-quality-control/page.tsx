@@ -7,6 +7,9 @@ import { INWARDS, PURCHASE_ORDERS, VENDORS, INVENTORY } from "@/utlis/apiRoutes"
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const defaultRow = () => ({ code: "", itemName: "", poBalQty: "", recQty: "", rejQty: "", okQty: "", packingDetail: "" });
 
@@ -72,6 +75,12 @@ export default function InwardQualityControlPage() {
     const canCreate = hasPermission("inward_quality_control", "create");
     const canUpdate = hasPermission("inward_quality_control", "update");
     const canView = hasPermission("inward_quality_control", "view");
+    const inwardColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Inward ID" },
+        { key: "date", header: "Date" },
+        { key: "GRIRNo", header: "GRIR No" },
+        { key: "DCNo", header: "DC No" },
+    ];
 
 
     const fetchNextId = async () => {
@@ -494,6 +503,14 @@ export default function InwardQualityControlPage() {
                 {/* Bottom Buttons */}
                 <div className="flex justify-center gap-3">
                     <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                    <ViewAllResource
+                        endpoint={INWARDS}
+                        title="All Inward Quality Records"
+                        columns={inwardColumns}
+                        searchKeys={["id", "date", "GRIRNo", "DCNo"]}
+                        canView={canView}
+                        onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                    />
                     <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isNewMode || isEditing}>Edit</button>
                     <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
                     <button type="button" onClick={() => setShowPrintModal(true)} className={btnClass}>Print</button>

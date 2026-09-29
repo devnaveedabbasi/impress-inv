@@ -10,6 +10,12 @@ import { CATEGORIES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type CategoryRow = {
+    id: number;
+    name: string;
+};
 
 const initialValues: CategoryFormValues = {
     id: "",
@@ -25,6 +31,10 @@ export default function CategoryPage() {
     const canView = hasPermission("category", "view");
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [categories, setCategories] = useState<CategoryRow[]>([]);
+    const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
+    const [categoriesError, setCategoriesError] = useState("");
 
 
     const fetchNextId = async () => {
@@ -40,6 +50,20 @@ export default function CategoryPage() {
             console.error("Failed to fetch next ID", error);
         } finally {
             setIsIdLoading(false);
+        }
+    };
+
+    const fetchAllCategories = async () => {
+        setIsViewAllOpen(true);
+        setIsCategoriesLoading(true);
+        setCategoriesError("");
+        try {
+            const { data } = await api.get(CATEGORIES);
+            setCategories(data.data || []);
+        } catch (error: any) {
+            setCategoriesError(error.response?.data?.message || "Failed to fetch categories");
+        } finally {
+            setIsCategoriesLoading(false);
         }
     };
 
@@ -76,6 +100,11 @@ export default function CategoryPage() {
 
     
     const debouncedId = useDebounce(values?.id, 500);
+
+    const categoryColumns: ViewAllColumn<CategoryRow>[] = [
+        { key: "id", header: "Category ID" },
+        { key: "name", header: "Category Name" },
+    ];
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
@@ -147,7 +176,7 @@ export default function CategoryPage() {
                     disabled={!isEditing}
                 />
 
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-6">
+                <div className="grid grid-cols-2 gap-3 pt-6 sm:flex sm:flex-wrap sm:items-center sm:justify-center">
                     <Button
                         type="button"
                         variant="secondary"
@@ -157,6 +186,16 @@ export default function CategoryPage() {
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
                     >
                         New
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        shape="rounded"
+                        onClick={fetchAllCategories}
+                        disabled={isSubmitting || !canView}
+                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
+                    >
+                        View All
                     </Button>
                     <Button
                         type="button"
@@ -181,6 +220,25 @@ export default function CategoryPage() {
                     </Button>
                 </div>
             </form>
+
+            <ViewAllModal
+                key={isViewAllOpen ? "open" : "closed"}
+                isOpen={isViewAllOpen}
+                title="All Categories"
+                rows={categories}
+                columns={categoryColumns}
+                searchKeys={["id", "name"]}
+                isLoading={isCategoriesLoading}
+                error={categoriesError}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(category) => {
+                    setValues({ id: String(category.id), name: category.name });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    setIsViewAllOpen(false);
+                }}
+                onDelete={() => undefined}
+            />
         </section>
     );
 }

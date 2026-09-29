@@ -11,6 +11,9 @@ import { QUOTATIONS, VENDORS, INVENTORY } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const defaultRow = () => ({ itemName: "", oldRate: "", proposedRate: "", approvedRate: "" });
 const initialValues: QuotationFormValues = {
@@ -43,6 +46,12 @@ export default function QuotationPage() {
     const canCreate = hasPermission("quotation", "create");
     const canUpdate = hasPermission("quotation", "update");
     const canView = hasPermission("quotation", "view");
+    const quotationColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Quotation ID" },
+        { key: "vendorId", header: "Vendor ID" },
+        { key: "date", header: "Date" },
+        { key: "remarks", header: "Remarks" },
+    ];
 
 
     const fetchNextId = async () => {
@@ -287,6 +296,14 @@ export default function QuotationPage() {
                     >
                         New
                     </Button>
+                    <ViewAllResource
+                        endpoint={QUOTATIONS}
+                        title="All Quotations"
+                        columns={quotationColumns}
+                        searchKeys={["id", "vendorId", "date", "remarks"]}
+                        canView={canView}
+                        onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                    />
                     <Button
                         type="button"
                         variant="secondary"

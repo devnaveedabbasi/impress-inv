@@ -10,6 +10,9 @@ import { DEPARTMENTS } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type DepartmentRow = { id: number; name: string };
 
 const initialValues: DepartmentFormValues = {
     id: "",
@@ -25,6 +28,10 @@ export default function DepartmentPage() {
     const canView = hasPermission("department", "view");
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [departments, setDepartments] = useState<DepartmentRow[]>([]);
+    const [isDepartmentsLoading, setIsDepartmentsLoading] = useState(false);
+    const [departmentsError, setDepartmentsError] = useState("");
 
 
     const fetchNextId = async () => {
@@ -40,6 +47,20 @@ export default function DepartmentPage() {
             console.error("Failed to fetch next ID", error);
         } finally {
             setIsIdLoading(false);
+        }
+    };
+
+    const fetchAllDepartments = async () => {
+        setIsViewAllOpen(true);
+        setIsDepartmentsLoading(true);
+        setDepartmentsError("");
+        try {
+            const { data } = await api.get(DEPARTMENTS);
+            setDepartments(data.data || []);
+        } catch (error: any) {
+            setDepartmentsError(error.response?.data?.message || "Failed to fetch departments");
+        } finally {
+            setIsDepartmentsLoading(false);
         }
     };
 
@@ -76,6 +97,10 @@ export default function DepartmentPage() {
 
     
     const debouncedId = useDebounce(values?.id, 500);
+    const departmentColumns: ViewAllColumn<DepartmentRow>[] = [
+        { key: "id", header: "Department ID" },
+        { key: "name", header: "Department Name" },
+    ];
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
@@ -162,6 +187,16 @@ export default function DepartmentPage() {
                         type="button"
                         variant="secondary"
                         shape="rounded"
+                        onClick={fetchAllDepartments}
+                        disabled={isSubmitting || !canView}
+                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
+                    >
+                        View All
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        shape="rounded"
                         onClick={() => setIsEditing(true)}
                         disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
                         className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
@@ -181,6 +216,24 @@ export default function DepartmentPage() {
                     </Button>
                 </div>
             </form>
+            <ViewAllModal
+                key={isViewAllOpen ? "open" : "closed"}
+                isOpen={isViewAllOpen}
+                title="All Departments"
+                rows={departments}
+                columns={departmentColumns}
+                searchKeys={["id", "name"]}
+                isLoading={isDepartmentsLoading}
+                error={departmentsError}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(department) => {
+                    setValues({ id: String(department.id), name: department.name });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    setIsViewAllOpen(false);
+                }}
+                onDelete={() => undefined}
+            />
         </section>
     );
 }

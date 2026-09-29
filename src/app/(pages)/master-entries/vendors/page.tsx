@@ -11,6 +11,9 @@ import { VENDORS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const initialValues: VendorFormValues = {
     id: "",
@@ -72,6 +75,12 @@ export default function VendorPage() {
     const canCreate = hasPermission("vendor", "create");
     const canUpdate = hasPermission("vendor", "update");
     const canView = hasPermission("vendor", "view");
+    const vendorColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Vendor ID" },
+        { key: "vendorName", header: "Vendor Name" },
+        { key: "contactNo", header: "Contact" },
+        { key: "cityId", header: "City ID" },
+    ];
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
     const [isProvincesLoading, setIsProvincesLoading] = useState(true);
@@ -376,6 +385,14 @@ export default function VendorPage() {
                     >
                         New
                     </Button>
+                    <ViewAllResource
+                        endpoint={VENDORS}
+                        title="All Vendors"
+                        columns={vendorColumns}
+                        searchKeys={["id", "vendorName", "contactNo"]}
+                        canView={canView}
+                        onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                    />
                     <Button
                         type="button"
                         variant="secondary"

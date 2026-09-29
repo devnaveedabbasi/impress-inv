@@ -65,8 +65,9 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Sales Department", children: [
       { label: "Purchase Order", href: "/sales/purchase-order", operation: "purchase_order" },
       { label: "Sales Order", href: "/sales/sales-order", operation: "sales_order" },
-      { label: "Sales Invoice", href: "/sales/sales-invoice", operation: "sales_invoice" },
+      // { label: "Sales Invoice", href: "/sales/sales-invoice", operation: "sales_invoice" },
       { label: "Quotation", href: "/sales/quotation", operation: "quotation" },
+      { label: "Sale Gate Pass", href: "/sales/sale-gate-pass", operation: "sale_gate_pass" },
     ]
   },
   {

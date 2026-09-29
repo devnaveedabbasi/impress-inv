@@ -11,6 +11,9 @@ import useDebounce from "@/hooks/useDebounce";
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Select } from "@/components/ui/Select";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const initialValues: RoleFormValues = {
     id: "",
@@ -27,6 +30,10 @@ export default function AddRolePage() {
     const canCreate = hasPermission("role", "create");
     const canUpdate = hasPermission("role", "update");
     const canView = hasPermission("role", "view");
+    const roleColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Role ID" },
+        { key: "name", header: "Role Name" },
+    ];
 
     const fetchPermissions = async () => {
         try {
@@ -101,19 +108,19 @@ export default function AddRolePage() {
         },
     });
 
-    const handleIdBlur = async () => {
-        if (!values.id) return;
+    const handleIdBlur = async (selectedId = values.id) => {
+        if (!selectedId) return;
 
         if (!canView) {
             toast.error("You do not have permission to view or search for roles.");
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
             return;
         }
 
         try {
-            const { data } = await api.get(`${ROLES}/${values.id}`);
+            const { data } = await api.get(`${ROLES}/${selectedId}`);
             if (data.data) {
                 const r = data.data;
                 setValues({
@@ -126,7 +133,7 @@ export default function AddRolePage() {
                 toast.success("Role found");
             } else {
                 toast.error("Role not found");
-                setValues({ ...initialValues, id: values.id });
+                setValues({ ...initialValues, id: selectedId });
                 setIsNewMode(true);
                 setIsEditing(true);
             }
@@ -136,7 +143,7 @@ export default function AddRolePage() {
             } else {
                 toast.error("Invalid Role ID");
             }
-            setValues({ ...initialValues, id: values.id });
+            setValues({ ...initialValues, id: selectedId });
             setIsNewMode(true);
             setIsEditing(true);
         }
@@ -176,7 +183,7 @@ export default function AddRolePage() {
                             label="Role ID"
                             value={values.id || ""}
                             onChange={handleInputChange("id")}
-                            onBlur={handleIdBlur}
+                            onBlur={() => void handleIdBlur()}
                             error={errors.id}
                             wrapperClassName="max-w-[200px]"
                         />
@@ -192,6 +199,18 @@ export default function AddRolePage() {
                     {/* Action Buttons */}
                     <div className="grid grid-cols-1 gap-2 shrink-0">
                         <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
+                        <ViewAllResource
+                            endpoint={ROLES}
+                            title="All Roles"
+                            columns={roleColumns}
+                            searchKeys={["id", "name"]}
+                            canView={canView}
+                            onSelectId={(id) => {
+                                const selectedId = String(id);
+                                setValues((prev) => ({ ...prev, id: selectedId }));
+                                void handleIdBlur(selectedId);
+                            }}
+                        />
                         <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}>Save</button>
                         <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode || !canUpdate}>Edit</button>
                     </div>

@@ -12,6 +12,9 @@ import { INVENTORY, CATEGORIES, DEPARTMENTS, STATIONS } from "@/utlis/apiRoutes"
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
+import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+
+type ViewAllRow = { id: number; [key: string]: unknown };
 
 const defaultRow = () => ({ stationId: "", color: "", qty: "" });
 const initialValues: InventoryFormValues = {
@@ -66,6 +69,13 @@ export default function InventoryPage() {
     const canCreate = hasPermission("inventory", "create");
     const canUpdate = hasPermission("inventory", "update");
     const canView = hasPermission("inventory", "view");
+    const inventoryColumns: ViewAllColumn<ViewAllRow>[] = [
+        { key: "id", header: "Inventory ID" },
+        { key: "itemName", header: "Item Name" },
+        { key: "categoryId", header: "Category ID" },
+        { key: "departmentId", header: "Department ID" },
+        { key: "rate", header: "Rate" },
+    ];
     const [isIdLoading, setIsIdLoading] = useState(true);
     const [nextId, setNextId] = useState<string>("");
     const [isOptionsLoading, setIsOptionsLoading] = useState(true);
@@ -369,6 +379,14 @@ export default function InventoryPage() {
                     >
                         New
                     </Button>
+                    <ViewAllResource
+                        endpoint={INVENTORY}
+                        title="All Inventory"
+                        columns={inventoryColumns}
+                        searchKeys={["id", "itemName", "categoryId", "departmentId"]}
+                        canView={canView}
+                        onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
+                    />
                     <Button
                         type="button"
                         variant="secondary"
