@@ -7,6 +7,7 @@ interface UseFormOptions<T> {
   validationSchema: ZodSchema;
   onSubmit: (data: T) => Promise<void>;
   successMessage?: string;
+  resetOnSuccess?: boolean;
 }
 
 export function useForm<T extends Record<string, any>>({
@@ -14,6 +15,7 @@ export function useForm<T extends Record<string, any>>({
   validationSchema,
   onSubmit,
   successMessage = "Success",
+  resetOnSuccess = true,
 }: UseFormOptions<T>) {
   const [values, setValues] = useState<T>(initialValues);
   const [errors, setErrors] = useState<Partial<Record<keyof T, string>>>({});
@@ -84,7 +86,9 @@ export function useForm<T extends Record<string, any>>({
     try {
       await onSubmit(result.data as T);
       setMessage(successMessage);
-      setValues(initialValues);
+      if (resetOnSuccess) {
+        setValues(initialValues);
+      }
     } catch (error) {
       setMessage(
         isAxiosError(error)

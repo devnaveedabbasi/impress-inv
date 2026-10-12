@@ -79,11 +79,5 @@ export const NAV_ITEMS: NavItem[] = [
       { label: "Account Code", href: "/account-department/account-code", operation: "account_code" },
     ],
   },
-  {
-    label: "Window",
-    children: [
-      { label: "Window 1", href: "/window/window1", operation: "window1" },
-      { label: "Window 2", href: "/window/window2", operation: "window2" },
-    ],
-  },
+  { label: "Offline Sync Dashboard", href: "/offline-sync" },
 ];

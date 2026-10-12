@@ -1,43 +1,196 @@
 import axios from "axios";
-const axiosInstance = axios.create({
-  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || "https://impress-bike-inv.onrender.com") + "/api",
+import { offlineSyncService } from "./offlineSyncService";
+
+export const syncAxiosInstance = axios.create({
+  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000" || "https://impress-bike-inv.onrender.com") + "/api",
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// Request interceptor — token automatic
+const axiosInstance = axios.create({
+  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000" || "https://impress-bike-inv.onrender.com") + "/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+const authInterceptor = (config: any) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+};
+
+axiosInstance.interceptors.request.use(authInterceptor, (error) => Promise.reject(error));
+syncAxiosInstance.interceptors.request.use(authInterceptor, (error) => Promise.reject(error));
+
+const formDataInterceptor = (config: any) => {
+  if (config.data instanceof FormData) {
+    config.headers["Content-Type"] = "multipart/form-data";
+  }
+  return config;
+};
+
+axiosInstance.interceptors.request.use(formDataInterceptor);
+syncAxiosInstance.interceptors.request.use(formDataInterceptor);
+
+// ==========================================
+// CENTRALIZED OFFLINE QUEUE INTERCEPTOR
+// ==========================================
 axiosInstance.interceptors.request.use(
-  (config) => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("token");
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+  async (config) => {
+    // If online, dispatch network request normally
+    if (typeof window === "undefined" || navigator.onLine) {
+      return config;
+    }
+
+    const method = config.method?.toLowerCase();
+    if (method && ["post", "put", "patch", "delete"].includes(method)) {
+      // Delegate to centralized offlineSyncService
+      const simulatedResponse = await offlineSyncService.enqueueMutation(config);
+
+      return {
+        ...config,
+        adapter: () => Promise.resolve(simulatedResponse),
+      } as any;
+    }
+
+    if (method === "get") {
+      const url = config.url || "";
+      if (url.endsWith("/next-id")) {
+        const baseUrl = url.replace("/next-id", "");
+        const suggestedId = await offlineSyncService.getSuggestedNextId(baseUrl);
+        const nextIdResponse = {
+          data: {
+            success: true,
+            message: "Suggested next-id offline (estimate)",
+            data: { nextId: suggestedId },
+          },
+          status: 200,
+          statusText: "OK (Offline Next ID)",
+          headers: config.headers,
+          config,
+          request: {},
+        };
+        return {
+          ...config,
+          adapter: () => Promise.resolve(nextIdResponse),
+        } as any;
       }
     }
+
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// FormData interceptor — Content-Type automatic
-axiosInstance.interceptors.request.use((config) => {
-  if (config.data instanceof FormData) {
-    config.headers["Content-Type"] = "multipart/form-data";
-  }
-  return config;
-});
-
-// Response interceptor
+// ==========================================
+// CENTRALIZED RESPONSE & CACHING INTERCEPTOR
+// ==========================================
 axiosInstance.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  async (response) => {
+    // Cache successful GET responses in offlineStore
+    if (response.config.method?.toLowerCase() === "get" && typeof window !== "undefined" && response.config.url) {
+      try {
+        await offlineSyncService.cacheGetResponse(response.config.url, response.data);
+      } catch (e) {
+        console.warn("Failed to cache GET response in axios interceptor", e);
+      }
+    }
+    return response;
+  },
+  async (error) => {
+    const config = error.config;
+
+    // Offline GET fallback
+    if (
+      config &&
+      config.method?.toLowerCase() === "get" &&
+      (!navigator.onLine || error.code === "ERR_NETWORK" || !error.response)
+    ) {
+      try {
+        const url = config.url || "";
+
+        // If fetching /next-id (e.g., /categories/next-id)
+        if (url.endsWith("/next-id")) {
+          const baseUrl = url.replace("/next-id", "");
+          const suggestedId = await offlineSyncService.getSuggestedNextId(baseUrl);
+
+          return Promise.resolve({
+            data: {
+              success: true,
+              message: "Suggested next-id offline (estimate)",
+              data: { nextId: suggestedId },
+            },
+            status: 200,
+            statusText: "OK (Offline Next ID)",
+            headers: config.headers,
+            config,
+            request: {},
+          });
+        }
+
+        // 1. Direct cache lookup
+        let cachedData = await offlineSyncService.getCachedResponse(url);
+
+        // 2. Fallbacks if direct cache miss
+        if (!cachedData) {
+          // Check if URL is a single item lookup: e.g. /categories/15 or /categories/temp-xxx
+          const cleanUrl = url.startsWith("/") ? url : `/${url}`;
+          const parts = cleanUrl.split("/").filter(Boolean);
+          if (parts.length >= 2) {
+            const targetId = parts[parts.length - 1];
+            const baseUrl = "/" + parts.slice(0, parts.length - 1).join("/");
+
+            const listCache = await offlineSyncService.getCachedResponse(baseUrl);
+            const list = Array.isArray(listCache?.data)
+              ? listCache.data
+              : Array.isArray(listCache)
+                ? listCache
+                : [];
+
+            const foundItem = list.find(
+              (item: any) =>
+                String(item.id) === String(targetId) ||
+                String(item.tempId) === String(targetId)
+            );
+
+            if (foundItem) {
+              cachedData = {
+                success: true,
+                message: "Retrieved from cached list offline",
+                data: foundItem,
+              };
+            }
+          }
+        }
+
+        if (cachedData) {
+          return Promise.resolve({
+            data: cachedData,
+            status: 200,
+            statusText: "OK (Cached Fallback)",
+            headers: config.headers,
+            config,
+            request: {},
+          });
+        }
+      } catch (e) {
+        console.error("Cache read error in axios interceptor:", e);
+      }
+    }
+
     if (error.response?.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("token");
       window.dispatchEvent(
         new CustomEvent("unauthorized", { detail: { redirect: "/auth/login" } })
       );
     }
+
     return Promise.reject(error);
   }
 );

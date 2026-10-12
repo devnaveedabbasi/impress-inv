@@ -28,7 +28,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-screen flex flex-col">
         <Providers>{children}</Providers>
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: "#18181b",
+              color: "#fafafa",
+              border: "1px solid #27272a",
+              fontSize: "14px",
+            },
+            success: {
+              duration: 3500,
+            },
+            error: {
+              duration: 5000,
+            },
+          }}
+        />
       </body>
     </html>
   );
