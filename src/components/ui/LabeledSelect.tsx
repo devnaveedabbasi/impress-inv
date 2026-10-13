@@ -15,10 +15,11 @@ export interface LabeledSelectProps
   placeholder?: string;
   error?: string;
   wrapperClassName?: string;
+  isLoading?: boolean;
 }
 
 export const LabeledSelect = forwardRef<HTMLSelectElement, LabeledSelectProps>(function LabeledSelect(
-  { label, options, value, onChange, placeholder = "Select", error, className, wrapperClassName, id, disabled, ...props },
+  { label, options, value, onChange, placeholder = "Select", error, className, wrapperClassName, id, disabled, isLoading: _isLoading, ...props },
   ref
 ) {
   const generatedId = useId();

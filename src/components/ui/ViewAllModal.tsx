@@ -24,6 +24,11 @@ interface ViewAllModalProps<T extends Record<string, unknown>> {
   onClose: () => void;
   onRowSelect?: (row: T) => void;
   onDelete?: (row: T) => void;
+  page?: number;
+  totalPages?: number;
+  total?: number;
+  onPageChange?: (page: number) => void;
+  onRetry?: () => void;
 }
 
 export function ViewAllModal<T extends Record<string, unknown>>({
@@ -38,6 +43,11 @@ export function ViewAllModal<T extends Record<string, unknown>>({
   onClose,
   onRowSelect,
   onDelete,
+  page: controlledPage,
+  totalPages: controlledTotalPages,
+  total: controlledTotal,
+  onPageChange,
+  onRetry,
 }: ViewAllModalProps<T>) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -53,8 +63,12 @@ export function ViewAllModal<T extends Record<string, unknown>>({
   }, [rows, debouncedSearch, searchKeys]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const visibleRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const currentPage = controlledPage ?? Math.min(page, totalPages);
+  const displayTotalPages = controlledTotalPages ?? totalPages;
+  const displayTotal = controlledTotal ?? filteredRows.length;
+  const visibleRows = onPageChange
+    ? filteredRows
+    : filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   if (!isOpen) return null;
 
@@ -89,7 +103,8 @@ export function ViewAllModal<T extends Record<string, unknown>>({
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
-              setPage(1);
+              onPageChange?.(1);
+              if (!onPageChange) setPage(1);
             }}
             placeholder="Search..."
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-primary-400"
@@ -115,7 +130,7 @@ export function ViewAllModal<T extends Record<string, unknown>>({
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: 6 }).map((_, rowIndex) => (
+                {Array.from({ length: 5 }).map((_, rowIndex) => (
                   <tr key={rowIndex}>
                     {Array.from({ length: columns.length + (onDelete ? 1 : 0) }).map((__, columnIndex) => (
                       <td key={columnIndex} className="border-b border-zinc-100 px-4 py-4">
@@ -127,7 +142,10 @@ export function ViewAllModal<T extends Record<string, unknown>>({
               </tbody>
             </table>
           ) : error ? (
-            <p className="p-8 text-center text-sm text-red-500">{error}</p>
+            <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+              <p className="text-sm text-red-500">{error}</p>
+              {onRetry && <Button type="button" size="sm" variant="outline" shape="rounded" onClick={onRetry}>Retry</Button>}
+            </div>
           ) : visibleRows.length === 0 ? (
             <p className="p-8 text-center text-sm text-zinc-500">No records found.</p>
           ) : (
@@ -183,7 +201,7 @@ export function ViewAllModal<T extends Record<string, unknown>>({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">
           <span className="text-xs text-zinc-500">
-            {filteredRows.length === 0 ? "0 records" : `${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, filteredRows.length)} of ${filteredRows.length}`}
+            {displayTotal === 0 ? "0 records" : `${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, displayTotal)} of ${displayTotal}`}
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -191,21 +209,21 @@ export function ViewAllModal<T extends Record<string, unknown>>({
               size="sm"
               variant="outline"
               shape="rounded"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              onClick={() => onPageChange?.(Math.max(1, currentPage - 1)) ?? setPage((current) => Math.max(1, current - 1))}
               disabled={currentPage === 1}
             >
               Previous
             </Button>
             <span className="min-w-16 text-center text-xs text-zinc-600">
-              {currentPage} / {totalPages}
+              Page {currentPage} of {displayTotalPages}
             </span>
             <Button
               type="button"
               size="sm"
               variant="outline"
               shape="rounded"
-              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              disabled={currentPage === totalPages}
+              onClick={() => onPageChange?.(Math.min(displayTotalPages, currentPage + 1)) ?? setPage((current) => Math.min(displayTotalPages, current + 1))}
+              disabled={currentPage === displayTotalPages}
             >
               Next
             </Button>

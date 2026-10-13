@@ -360,7 +360,8 @@ export default function OfflineSyncDashboardPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {(item.permanentFailure || item.status === "failed") && (
+                          {(item.permanentFailure || item.status === "failed") &&
+                            item.retryCount < item.maxRetries && (
                             <button
                               onClick={() => void retryItem(item.id)}
                               className="rounded bg-zinc-100 px-2 py-1 text-zinc-700 hover:bg-zinc-200 font-medium"

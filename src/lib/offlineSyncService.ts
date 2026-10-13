@@ -30,6 +30,7 @@ class OfflineSyncService {
   private lastSyncTime: number | null = null;
 
   private queueSubscribers: Set<QueueSubscriber> = new Set();
+  private queueSnapshot: QueuedMutation[] = [];
   private statusSubscribers: Set<StatusSubscriber> = new Set();
   private historySubscribers: Set<HistorySubscriber> = new Set();
 
@@ -90,6 +91,7 @@ class OfflineSyncService {
   }
 
   private notifyQueue(queue: QueuedMutation[]) {
+    this.queueSnapshot = queue;
     this.queueSubscribers.forEach((cb) => {
       try {
         cb(queue);
@@ -135,11 +137,16 @@ class OfflineSyncService {
     if (typeof window === "undefined") return [];
     try {
       const queue = await offlineStore.getItem<QueuedMutation[]>(this.queueKey);
-      return queue || [];
+      this.queueSnapshot = queue || [];
+      return this.queueSnapshot;
     } catch (e) {
       console.error("Failed to read offline queue:", e);
       return [];
     }
+  }
+
+  public getQueueSnapshot(): QueuedMutation[] {
+    return this.queueSnapshot;
   }
 
   public async saveQueue(queue: QueuedMutation[]): Promise<void> {
@@ -222,8 +229,14 @@ class OfflineSyncService {
   }
 
   public generateTempId(): string {
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    return `temp-${Date.now()}-${randomSuffix}`;
+    const uuid = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+          const random = Math.floor(Math.random() * 16);
+          const value = character === "x" ? random : (random & 0x3) | 0x8;
+          return value.toString(16);
+        });
+    return `temp-${uuid}`;
   }
 
   public generateClientMutationId(): string {
@@ -318,7 +331,12 @@ class OfflineSyncService {
     let finalRecordId: string | number = recordId;
 
     if (rawMethod === "post") {
-      tempId = this.generateTempId();
+      const requestedTempId =
+        parsedData &&
+        typeof parsedData === "object" &&
+        !Array.isArray(parsedData) &&
+        (parsedData._tempId || parsedData.tempId);
+      tempId = typeof requestedTempId === "string" ? requestedTempId : this.generateTempId();
       finalRecordId = tempId;
       if (parsedData && typeof parsedData === "object" && !Array.isArray(parsedData)) {
         parsedData = { ...parsedData, tempId };
@@ -336,6 +354,10 @@ class OfflineSyncService {
       tempId,
       method: rawMethod,
       url: rawUrl,
+      resourceUrl:
+        rawMethod === "post"
+          ? rawUrl
+          : rawUrl.split("/").slice(0, -1).join("/") || rawUrl,
       data: parsedData,
       headers: (config.headers as Record<string, string>) || {},
       timestamp: Date.now(),
@@ -345,11 +367,27 @@ class OfflineSyncService {
     };
 
     const queue = await this.getQueue();
-    queue.push(mutationItem);
+    const existingIndex =
+      tempId ? queue.findIndex((item) => item.tempId === tempId) : -1;
+    if (existingIndex >= 0) {
+      const existing = queue[existingIndex];
+      queue[existingIndex] = {
+        ...existing,
+        ...mutationItem,
+        id: existing.id,
+        clientMutationId: existing.clientMutationId,
+        retryCount: existing.retryCount,
+        status: existing.status === "syncing" ? "syncing" : "pending",
+        permanentFailure: false,
+      };
+    } else {
+      queue.push(mutationItem);
+    }
     await this.saveQueue(queue);
 
     // Apply optimistic update to local cache
-    const simulatedRecord = await this.applyOptimisticUpdate(mutationItem);
+    const queuedItem = existingIndex >= 0 ? queue[existingIndex] : mutationItem;
+    const simulatedRecord = await this.applyOptimisticUpdate(queuedItem);
 
     const responsePayload = {
       success: true,
@@ -401,7 +439,16 @@ class OfflineSyncService {
             : null;
 
           if (list) {
-            list.push(newRecord);
+            const existingIndex = list.findIndex(
+              (item: Record<string, unknown>) =>
+                String(item.id) === String(tempId) ||
+                String(item.tempId) === String(tempId)
+            );
+            if (existingIndex >= 0) {
+              list[existingIndex] = { ...list[existingIndex], ...newRecord };
+            } else {
+              list.push(newRecord);
+            }
             await offlineStore.setItem(listCacheKey, cachedWrapper);
           }
         }
@@ -676,9 +723,35 @@ class OfflineSyncService {
 
     try {
       const queue = await this.getQueue();
-      result.total = queue.length;
+      const dedupedQueue: QueuedMutation[] = [];
+      const tempIndexes = new Map<string, number>();
+      for (const item of queue) {
+        if (!item.tempId) {
+          dedupedQueue.push(item);
+          continue;
+        }
+        const previousIndex = tempIndexes.get(item.tempId);
+        if (previousIndex === undefined) {
+          tempIndexes.set(item.tempId, dedupedQueue.length);
+          dedupedQueue.push(item);
+        } else {
+          const previous = dedupedQueue[previousIndex];
+          dedupedQueue[previousIndex] = {
+            ...previous,
+            ...item,
+            id: previous.id,
+            clientMutationId: previous.clientMutationId,
+            retryCount: Math.max(previous.retryCount, item.retryCount),
+          };
+        }
+      }
+      if (dedupedQueue.length !== queue.length) {
+        await this.saveQueue(dedupedQueue);
+      }
+      const queueToProcess = dedupedQueue;
+      result.total = queueToProcess.length;
 
-      if (queue.length === 0) {
+      if (queueToProcess.length === 0) {
         this.lastSyncTime = Date.now();
         await offlineStore.setItem(this.lastSyncTimeKey, this.lastSyncTime);
         return result;
@@ -686,12 +759,12 @@ class OfflineSyncService {
 
       const updatedQueue: QueuedMutation[] = [];
 
-      for (let i = 0; i < queue.length; i++) {
-        const item = queue[i];
+      for (let i = 0; i < queueToProcess.length; i++) {
+        const item = queueToProcess[i];
 
         // Abort if network dropped mid-sync
         if (!navigator.onLine) {
-          updatedQueue.push(...queue.slice(i));
+          updatedQueue.push(...queueToProcess.slice(i));
           break;
         }
 
@@ -711,7 +784,7 @@ class OfflineSyncService {
 
         // Mark syncing in UI
         item.status = "syncing";
-        await this.saveQueue([...updatedQueue, ...queue.slice(i)]);
+        await this.saveQueue([...updatedQueue, ...queueToProcess.slice(i)]);
 
         // Prepare request
         const idMap = await this.getIdMap();
@@ -759,10 +832,25 @@ class OfflineSyncService {
           // SUCCESS
           result.synced++;
           const responseData = response.data?.data || response.data;
-          const realId = responseData?.id;
+          const realId = this.extractRealId(responseData);
 
-          if (item.method === "post" && item.tempId && realId) {
-            await this.reconcileTempId(item.tempId, realId, item.url);
+          if (item.method === "post" && item.tempId) {
+            if (realId === undefined) {
+              item.status = "failed";
+              item.permanentFailure = true;
+              item.errorMessage = "Sync succeeded but the server returned no real record ID.";
+              item.errorStatus = response.status;
+              updatedQueue.push(item);
+              result.failed++;
+              result.errors.push({
+                id: item.id,
+                url: targetUrl,
+                message: item.errorMessage,
+                status: response.status,
+              });
+              continue;
+            }
+            await this.reconcileTempId(item.tempId, realId, item.resourceUrl || item.url);
           }
 
           // Record in sync history
@@ -790,14 +878,34 @@ class OfflineSyncService {
           item.errorMessage = errorMessage;
           item.errorStatus = status;
 
-          // Differentiate between 4xx validation/conflicts vs transient network/5xx
-          if (status >= 400 && status < 500) {
-            // Validation or Conflict (e.g. 409 unique constraint, 400 invalid, 404 missing)
+          if (status === 409) {
+            const conflictData = error.response?.data?.data || error.response?.data;
+            const conflictId = this.extractRealId(conflictData);
+            if (item.method === "post" && item.tempId && conflictId) {
+              result.synced++;
+              await this.reconcileTempId(item.tempId, conflictId, item.resourceUrl || item.url);
+              await this.recordHistoryItem({
+                mutationId: item.id,
+                clientMutationId: item.clientMutationId,
+                entity: item.entity,
+                operation: item.operation,
+                recordId: item.recordId,
+                method: item.method,
+                url: targetUrl,
+                realId: conflictId,
+                status: "success",
+              });
+              continue;
+            }
+
             item.status = "failed";
-            item.permanentFailure = true; // Stop automatic retries until resolved
+            item.permanentFailure = true;
+            item.nextRetryTimestamp = undefined;
+          } else if (status >= 400 && status < 500) {
+            item.status = "failed";
+            item.permanentFailure = true;
             item.nextRetryTimestamp = undefined;
           } else {
-            // Transient 5xx or network dropped: apply bounded exponential backoff
             item.status = "pending";
             const backoffSeconds = Math.min(60, Math.pow(2, item.retryCount) * 2);
             item.nextRetryTimestamp = Date.now() + backoffSeconds * 1000;
@@ -827,6 +935,7 @@ class OfflineSyncService {
           // ALWAYS preserve failed item in queue!
           updatedQueue.push(item);
         }
+
       }
 
       result.remaining = updatedQueue.length;
@@ -841,6 +950,18 @@ class OfflineSyncService {
     }
   }
 
+  private extractRealId(value: unknown): string | number | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const record = value as Record<string, unknown>;
+    const directId = record.id ?? record._id ?? record.realId ?? record.recordId;
+    if (typeof directId === "string" || typeof directId === "number") return directId;
+    for (const key of ["data", "record", "existing", "existingRecord"]) {
+      const nested = this.extractRealId(record[key]);
+      if (nested !== undefined) return nested;
+    }
+    return undefined;
+  }
+
   // ==========================================
   // MANAGEMENT ACTIONS
   // ==========================================
@@ -848,9 +969,10 @@ class OfflineSyncService {
   public async retryQueueItem(queueId: string): Promise<void> {
     const queue = await this.getQueue();
     const item = queue.find((i) => i.id === queueId);
-    if (item) {
+    if (item && item.retryCount < item.maxRetries) {
       item.status = "pending";
       item.permanentFailure = false;
+      item.retryCount = 0;
       item.errorMessage = undefined;
       item.nextRetryTimestamp = undefined;
       await this.saveQueue(queue);
@@ -862,7 +984,10 @@ class OfflineSyncService {
     const queue = await this.getQueue();
     let updated = false;
     for (const item of queue) {
-      if (item.permanentFailure || item.status === "failed") {
+      if (
+        (item.permanentFailure || item.status === "failed") &&
+        item.retryCount < item.maxRetries
+      ) {
         item.status = "pending";
         item.permanentFailure = false;
         item.errorMessage = undefined;

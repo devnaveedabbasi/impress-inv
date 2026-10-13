@@ -1,5 +1,16 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Dependencies
+
+This project includes the required state-management and form libraries for the master-entry refactor:
+
+- `@reduxjs/toolkit` for centralized async and list state management
+- `react-redux` for store binding in the app provider
+- `react-hook-form` for form-local state and validation handling
+- `@hookform/resolvers` for schema-based form validation
+- `zod` for validation schema definitions
+- `axios` for API calls and offline queue integration
+
 ## Getting Started
 
 First, run the development server:

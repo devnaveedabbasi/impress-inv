@@ -1,18 +1,96 @@
 "use client";
 
+import { useEffect } from "react";
 import { Provider } from "react-redux";
-import { store, persistor } from ".";
+import { store } from "@/store";
 import { AuthGuard } from "@/components/layout/AuthGuard";
-import { PersistGate } from "redux-persist/integration/react";
 import { OfflineSyncManager } from "@/components/OfflineSyncManager";
+import { offlineSyncService } from "@/lib/offlineSyncService";
+import { CATEGORIES, CITIES, PROVINCES } from "@/utlis/apiRoutes";
+import {
+  categorySlice,
+  fetchAllCategories,
+  fetchCategoryNextId,
+} from "@/store/slices/categorySlice";
+import {
+  provinceSlice,
+  fetchAllProvinces,
+  fetchProvinceNextId,
+} from "@/store/slices/provinceSlice";
+import {
+  citySlice,
+  fetchAllCities,
+  fetchCityNextId,
+} from "@/store/slices/citySlice";
+
+function registerReconciliationListener() {
+  const onReconciled = (event: Event) => {
+    const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+    if (!detail) return;
+
+    if (detail.resourceUrl === CATEGORIES) {
+      store.dispatch(categorySlice.actions.setReconciledId(detail));
+    }
+
+    if (detail.resourceUrl === PROVINCES) {
+      store.dispatch(provinceSlice.actions.setReconciledId(detail));
+      store.dispatch(citySlice.actions.setReconciledProvinceId(detail));
+    }
+
+    if (detail.resourceUrl === CITIES) {
+      store.dispatch(citySlice.actions.setReconciledId(detail));
+    }
+  };
+
+  const onNetwork = () => {
+    if (navigator.onLine) {
+      void offlineSyncService.processQueue();
+      store.dispatch(fetchAllCategories({ page: 1, limit: 10 }));
+      store.dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
+      store.dispatch(fetchAllCities({ page: 1, limit: 10 }));
+      store.dispatch(fetchCategoryNextId());
+      store.dispatch(fetchProvinceNextId());
+      store.dispatch(fetchCityNextId());
+    } else {
+      // Prime a usable temp ID immediately on the offline transition.
+      // The master-entry form effects reset their IDs from these values.
+      store.dispatch(fetchCategoryNextId());
+      store.dispatch(fetchProvinceNextId());
+      store.dispatch(fetchCityNextId());
+    }
+  };
+
+  window.addEventListener("offline-id-reconciled", onReconciled);
+  window.addEventListener("online", onNetwork);
+  window.addEventListener("offline", onNetwork);
+
+  return () => {
+    window.removeEventListener("offline-id-reconciled", onReconciled);
+    window.removeEventListener("online", onNetwork);
+    window.removeEventListener("offline", onNetwork);
+  };
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    const unregister = registerReconciliationListener();
+    const unsubscribeQueue = offlineSyncService.subscribeQueue(() => {
+      const version = Date.now();
+      store.dispatch(categorySlice.actions.setOfflineQueueVersion(version));
+      store.dispatch(provinceSlice.actions.setOfflineQueueVersion(version));
+      store.dispatch(citySlice.actions.setOfflineQueueVersion(version));
+    });
+
+    return () => {
+      unregister();
+      unsubscribeQueue();
+    };
+  }, []);
+
   return (
     <Provider store={store}>
-      <PersistGate loading={null} persistor={persistor}>
-        <OfflineSyncManager />
-        <AuthGuard>{children}</AuthGuard>
-      </PersistGate>
+      <OfflineSyncManager />
+      <AuthGuard>{children}</AuthGuard>
     </Provider>
   );
 }

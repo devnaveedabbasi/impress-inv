@@ -1,244 +1,125 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { LabeledField } from "@/components/ui/LabeledField";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
-import { useForm } from "@/hooks/useForm";
+import { LabeledField } from "@/components/ui/LabeledField";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
 import { provinceSchema, type ProvinceFormValues } from "@/lib/validations/master";
-import { PROVINCES } from "@/utlis/apiRoutes";
-import api from "@/lib/axios";
-import toast from "react-hot-toast";
-import { usePermissions } from "@/hooks/usePermissions";
-import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { isTempId } from "@/store/utils/tempId";
+import {
+  clearApiError, createProvince, fetchAllProvinces, fetchProvinceById, fetchProvinceNextId,
+  setCurrentRecord, setEditing, setNewMode, updateProvince, type ProvinceRecord,
+} from "@/store/slices/provinceSlice";
+import {
+  selectProvinceApiError, selectProvinceCurrentRecord, selectProvinceIsEditing,
+  selectProvinceIsIdLoading, selectProvinceIsNewMode, selectProvinceIsSubmitting,
+  selectProvinceIsLookingUp,
+  selectProvinceList, selectProvinceListError, selectProvinceListStatus, selectProvinceNextId,
+  selectProvincePagination,
+} from "@/store/selectors/provinceSelectors";
 
-type ProvinceRow = {
-    id: number;
-    name: string;
-};
-
-const initialValues: ProvinceFormValues = {
-    id: "",
-    name: "",
-};
+const initialValues: ProvinceFormValues = { id: "", name: "" };
 
 export default function ProvincePage() {
-    const router = useRouter();
-    const [isNewMode, setIsNewMode] = useState(true);
-    const [isEditing, setIsEditing] = useState(true);
-    const { hasPermission } = usePermissions();
-    const canCreate = hasPermission("province", "create");
-    const canUpdate = hasPermission("province", "update");
-    const canView = hasPermission("province", "view");
-    const [isIdLoading, setIsIdLoading] = useState(true);
-    const [nextId, setNextId] = useState<string>("");
-    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
-    const [provinces, setProvinces] = useState<ProvinceRow[]>([]);
-    const [isProvincesLoading, setIsProvincesLoading] = useState(false);
-    const [provincesError, setProvincesError] = useState("");
+  const dispatch = useAppDispatch();
+  const { hasPermission } = usePermissions();
+  const list = useAppSelector(selectProvinceList);
+  const nextId = useAppSelector(selectProvinceNextId);
+  const isNewMode = useAppSelector(selectProvinceIsNewMode);
+  const isEditing = useAppSelector(selectProvinceIsEditing);
+  const isIdLoading = useAppSelector(selectProvinceIsIdLoading);
+  const isSubmitting = useAppSelector(selectProvinceIsSubmitting);
+  const isLookingUp = useAppSelector(selectProvinceIsLookingUp);
+  const listStatus = useAppSelector(selectProvinceListStatus);
+  const listError = useAppSelector(selectProvinceListError);
+  const pagination = useAppSelector(selectProvincePagination);
+  const currentRecord = useAppSelector(selectProvinceCurrentRecord);
+  const apiError = useAppSelector(selectProvinceApiError);
+  const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+  const canCreate = hasPermission("province", "create");
+  const canUpdate = hasPermission("province", "update");
+  const canView = hasPermission("province", "view");
 
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
+    useForm<ProvinceFormValues>({ resolver: zodResolver(provinceSchema), defaultValues: initialValues });
+  const watchedId = watch("id");
+  const watchedName = watch("name");
+  const debouncedId = useDebounce(watchedId, 500);
 
-    const fetchNextId = async () => {
-        setIsIdLoading(true);
-        try {
-            const { data } = await api.get(`${PROVINCES}/next-id`);
-            const fetchedNextId = String(data.data.nextId);
-            setNextId(fetchedNextId);
-            setValues({ id: fetchedNextId, name: "" });
-            setIsNewMode(true);
-            setIsEditing(true);
-        } catch (error) {
-            console.error("Failed to fetch next ID", error);
-        } finally {
-            setIsIdLoading(false);
-        }
-    };
+  useEffect(() => {
+    dispatch(fetchProvinceNextId());
+    dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
+  }, [dispatch]);
+  useEffect(() => {
+    if (isNewMode && nextId) reset({ id: String(nextId), name: "" });
+  }, [isNewMode, nextId, reset]);
+  useEffect(() => {
+    if (!isNewMode && currentRecord) reset({ id: String(currentRecord.id), name: currentRecord.name });
+  }, [currentRecord, isNewMode, reset]);
+  useEffect(() => {
+    if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
+    dispatch(fetchProvinceById(String(debouncedId))).unwrap().catch(() => setValue("name", ""));
+  }, [debouncedId, dispatch, isIdLoading, nextId, setValue]);
+  useEffect(() => {
+    if (apiError) { toast.error(apiError); dispatch(clearApiError()); }
+  }, [apiError, dispatch]);
 
-    const fetchAllProvinces = async () => {
-        setIsViewAllOpen(true);
-        setIsProvincesLoading(true);
-        setProvincesError("");
-        try {
-            const { data } = await api.get(PROVINCES);
-            setProvinces(data.data || []);
-        } catch (error: any) {
-            setProvincesError(error.response?.data?.message || "Failed to fetch provinces");
-        } finally {
-            setIsProvincesLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchNextId();
-    }, []);
-
-    const {
-        values,
-        errors,
-        isLoading: isSubmitting,
-        handleInputChange,
-        handleSubmit,
-        setValues,
-    } = useForm({
-        initialValues,
-        validationSchema: provinceSchema,
-        onSubmit: async (data) => {
-            try {
-                if (isNewMode) {
-                    const response = await api.post(PROVINCES, { name: data.name });
-                    toast.success(response.data.message || "Province created successfully");
-                } else {
-                    const response = await api.put(`${PROVINCES}/${data.id}`, { name: data.name });
-                    toast.success(response.data.message || "Province updated successfully");
-                }
-                fetchNextId();
-            } catch (error: any) {
-                toast.error(error.response?.data?.message || "Failed to save province");
-                throw error;
-            }
-        },
-    });
-
-    
-    const debouncedId = useDebounce(values?.id, 500);
-
-    const provinceColumns: ViewAllColumn<ProvinceRow>[] = [
-        { key: "id", header: "Province ID" },
-        { key: "name", header: "Province Name" },
-    ];
-
-    useEffect(() => {
-        const fetchDebouncedId = async () => {
-        if (!debouncedId) return;
-
-        if (debouncedId === String(nextId)) {
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        try {
-            const { data } = await api.get(`${PROVINCES}/${debouncedId}`);
-            if (data.data) {
-                setValues({ id: String(data.data.id), name: data.data.name });
-                setIsNewMode(false);
-                setIsEditing(false);
-                toast.success("Province found");
-            } else {
-                toast.error("Province not found");
-                setValues({ ...initialValues, id: nextId });
-                setIsNewMode(true);
-            }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
-            } else {
-                toast.error("Invalid Province ID");
-            }
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-        }
+  const onSubmit = handleSubmit(async (data) => {
+    if (!isEditing) {
+      toast.error("Click Edit first to modify");
+      return;
     }
-        fetchDebouncedId();
-    }, [debouncedId]);;
+    try {
+      if (isNewMode) await dispatch(createProvince(data)).unwrap();
+      else await dispatch(updateProvince({ ...data, id: String(data.id ?? "") })).unwrap();
+      toast.success("Saved successfully");
+      dispatch(setNewMode(true));
+      dispatch(setEditing(true));
+      dispatch(fetchProvinceNextId());
+      dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
+    } catch { /* apiError toast via effect */ }
+  });
+  const handleNew = () => {
+    if (isNewMode && isTempId(String(nextId ?? "")) && !watchedName) {
+      reset({ id: String(nextId), name: "" });
+      return;
+    }
+    dispatch(setNewMode(true)); dispatch(setEditing(true)); dispatch(fetchProvinceNextId());
+  };
+  const handleViewAll = () => {
+    setIsViewAllOpen(true);
+    if (list.length === 0) dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
+  };
+  const columns: ViewAllColumn<ProvinceRecord>[] = [{ key: "id", header: "ID" }, { key: "name", header: "Name" }];
 
-    return (
-        <section className="mx-auto mt-10 w-full max-w-110 bg-form-bg p-6 shadow-xl sm:p-8">
-            <h1 className="mb-6 text-center text-2xl font-bold text-zinc-900 sm:text-3xl">Province Entry</h1>
-
-            <form onSubmit={handleSubmit} noValidate className="space-y-3">
-                <LabeledField
-                    type={isIdLoading ? "text" : "number"}
-                    label="Province ID"
-                    value={isIdLoading ? "Loading..." : values.id || ""}
-                    onChange={handleInputChange("id")}
-                    error={errors.id}
-                    disabled={isIdLoading}
-                min={1}
-                    max={Number(nextId) || 1}
-                />
-                <LabeledField
-                    label="Province Name"
-                    value={values.name}
-                    onChange={handleInputChange("name")}
-                    error={errors.name}
-                    disabled={!isEditing}
-                />
-
-                <div className="grid grid-cols-2 gap-3 pt-6 sm:flex sm:flex-wrap sm:items-center sm:justify-center">
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        shape="rounded"
-                        onClick={fetchNextId}
-                        disabled={isSubmitting || !canCreate}
-                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
-                    >
-                        New
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        shape="rounded"
-                        onClick={fetchAllProvinces}
-                        disabled={isSubmitting || !canView}
-                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
-                    >
-                        View All
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        shape="rounded"
-                        onClick={() => setIsEditing(true)}
-                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
-                        className="border border-zinc-400 bg-white px-6 hover:bg-zinc-50"
-                    >
-                        Edit
-                    </Button>
-
-                    <Button
-                        type="submit"
-                        variant="secondary"
-                        shape="rounded"
-                        isLoading={isSubmitting}
-                        disabled={!isEditing || (isNewMode ? !canCreate : !canUpdate)}
-                        className="border border-zinc-400 bg-white px-8 hover:bg-zinc-50"
-                    >
-                        Save
-                    </Button>
-                </div>
-            </form>
-
-            <ViewAllModal
-                key={isViewAllOpen ? "open" : "closed"}
-                isOpen={isViewAllOpen}
-                title="All Provinces"
-                rows={provinces}
-                columns={provinceColumns}
-                searchKeys={["id", "name"]}
-                isLoading={isProvincesLoading}
-                error={provincesError}
-                onClose={() => setIsViewAllOpen(false)}
-                onRowSelect={(province) => {
-                    setValues({ id: String(province.id), name: province.name });
-                    setIsNewMode(false);
-                    setIsEditing(false);
-                    setIsViewAllOpen(false);
-                }}
-                onDelete={() => undefined}
-            />
-        </section>
-    );
+  return (
+    <section className=" mx-auto mt-10 w-full max-w-[500px] rounded-xl bg-white p-6 shadow-lg">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-zinc-900">Provinces</h1>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={handleNew} disabled={!canCreate}>New</Button>
+          <Button type="button" variant="outline" onClick={handleViewAll} disabled={!canView}>View All</Button>
+        </div>
+      </div>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="relative space-y-4">
+          <LabeledField label="ID" type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"} {...register("id", { valueAsNumber: false })} value={isIdLoading ? "" : String(watchedId || nextId || "")} min={1} error={errors.id?.message} disabled={isIdLoading} />
+          <LabeledField label="Name" type="text" {...register("name")} error={errors.name?.message} disabled={!isEditing} />
+          {isLookingUp && <LoadingOverlay text="Loading province..." />}
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)} isLoading={isSubmitting}>Save</Button>
+          <Button type="button" variant="secondary" onClick={() => dispatch(setEditing(true))} disabled={isSubmitting || isNewMode || isEditing || !canUpdate}>Edit</Button>
+        </div>
+      </form>
+      <ViewAllModal isOpen={isViewAllOpen} title="Provinces" rows={list} columns={columns} searchKeys={["id", "name"]} isLoading={listStatus === "loading"} error={listError ?? undefined} page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} onPageChange={(page) => dispatch(fetchAllProvinces({ page, limit: pagination.limit }))} onRetry={() => dispatch(fetchAllProvinces({ page: pagination.page, limit: pagination.limit }))} onClose={() => setIsViewAllOpen(false)} onRowSelect={(row) => { dispatch(setCurrentRecord(row)); dispatch(setNewMode(false)); dispatch(setEditing(false)); setIsViewAllOpen(false); }} />
+    </section>
+  );
 }
-

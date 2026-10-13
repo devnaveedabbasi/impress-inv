@@ -13,6 +13,7 @@ export interface QueuedMutation {
   tempId?: string; // Client temporary ID if this was created offline
   method: MutationMethod;
   url: string;
+  resourceUrl?: string;
   data?: any;
   headers?: Record<string, string>;
   timestamp: number;
