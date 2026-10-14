@@ -108,24 +108,113 @@ export default function CityPage() {
     ];
 
     return (
-        <section className="mx-auto mt-10 w-full max-w-3xl rounded-xl bg-white p-6 shadow-lg">
-            <div className="mb-6 flex items-center justify-between gap-3">
-                <h1 className="text-2xl font-semibold text-zinc-900">Cities</h1>
-                <div className="flex gap-2">
-                    <Button type="button" variant="secondary" onClick={handleNew} disabled={!canCreate}>New</Button>
-                    <Button type="button" variant="outline" onClick={handleViewAll} disabled={!canView}>View All</Button>
+        <section className="mx-auto w-full max-w-[500px] rounded-xl bg-white p-4 shadow-lg sm:mt-10 sm:max-w-3xl sm:p-6">
+            {/* Header — stacks on mobile */}
+            <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+                <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">
+                    Cities
+                </h1>
+                <div className="flex w-full gap-2 sm:w-auto">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={handleNew}
+                        disabled={!canCreate}
+                        className="flex-1 sm:flex-none"
+                    >
+                        New
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleViewAll}
+                        disabled={!canView}
+                        className="flex-1 sm:flex-none"
+                    >
+                        View All
+                    </Button>
                 </div>
             </div>
+
             <form onSubmit={onSubmit} className="space-y-4">
-                <LabeledField label="ID" type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"} {...register("id", { valueAsNumber: false })} value={isIdLoading ? "" : String(watchedId || nextId || "")} min={1} error={errors.id?.message} disabled={isIdLoading} />
-                <LabeledField label="Name" type="text" {...register("name")} error={errors.name?.message} disabled={!isEditing} />
-                <LabeledSelect label="Province" value={watchedProvinceId ?? ""} options={provincesStatus === "loading" ? [] : provinceOptions} placeholder={provincesStatus === "loading" ? "Loading provinces..." : provincesStatus === "failed" ? "Failed to load provinces" : "Select Province"} disabled={!isEditing || provincesStatus === "loading"} isLoading={provincesStatus === "loading"} onChange={(value) => setValue("provinceId", value, { shouldValidate: true, shouldDirty: true })} error={errors.provinceId?.message} />
-                <div className="flex gap-2">
-                    <Button type="submit" disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)} isLoading={isSubmitting}>Save</Button>
-                    <Button type="button" variant="secondary" onClick={() => dispatch(setEditing(true))} disabled={isSubmitting || isNewMode || isEditing || !canUpdate}>Edit</Button>
+                <LabeledField
+                    label="ID"
+                    type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
+                    {...register("id", { valueAsNumber: false })}
+                    value={isIdLoading ? "" : String(watchedId || nextId || "")}
+                    min={1}
+                    error={errors.id?.message}
+                    disabled={isIdLoading}
+                />
+                <LabeledField
+                    label="Name"
+                    type="text"
+                    {...register("name")}
+                    error={errors.name?.message}
+                    disabled={!isEditing}
+                />
+                <LabeledSelect
+                    label="Province"
+                    value={watchedProvinceId ?? ""}
+                    options={provincesStatus === "loading" ? [] : provinceOptions}
+                    placeholder={
+                        provincesStatus === "loading"
+                            ? "Loading provinces..."
+                            : provincesStatus === "failed"
+                                ? "Failed to load provinces"
+                                : "Select Province"
+                    }
+                    disabled={!isEditing || provincesStatus === "loading"}
+                    isLoading={provincesStatus === "loading"}
+                    onChange={(value) =>
+                        setValue("provinceId", value, { shouldValidate: true, shouldDirty: true })
+                    }
+                    error={errors.provinceId?.message}
+                />
+
+                {/* Action buttons — full-width stack on mobile */}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                        type="submit"
+                        disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}
+                        isLoading={isSubmitting}
+                        className="w-full sm:w-auto"
+                    >
+                        Save
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => dispatch(setEditing(true))}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
+                        className="w-full sm:w-auto"
+                    >
+                        Edit
+                    </Button>
                 </div>
             </form>
-            <ViewAllModal isOpen={isViewAllOpen} title="Cities" rows={list} columns={columns} searchKeys={["id", "name", "provinceId"]} isLoading={listStatus === "loading"} error={listError ?? undefined} page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} onPageChange={(page) => dispatch(fetchAllCities({ page, limit: pagination.limit }))} onRetry={() => dispatch(fetchAllCities({ page: pagination.page, limit: pagination.limit }))} onClose={() => setIsViewAllOpen(false)} onRowSelect={(row) => { dispatch(setCurrentRecord(row)); dispatch(setNewMode(false)); dispatch(setEditing(false)); setIsViewAllOpen(false); }} />
+
+            <ViewAllModal
+                isOpen={isViewAllOpen}
+                title="Cities"
+                rows={list}
+                columns={columns}
+                searchKeys={["id", "name", "provinceId"]}
+                isLoading={listStatus === "loading"}
+                error={listError ?? undefined}
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                total={pagination.total}
+                onPageChange={(page) => dispatch(fetchAllCities({ page, limit: pagination.limit }))}
+                onRetry={() => dispatch(fetchAllCities({ page: pagination.page, limit: pagination.limit }))}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(row) => {
+                    dispatch(setCurrentRecord(row));
+                    dispatch(setNewMode(false));
+                    dispatch(setEditing(false));
+                    setIsViewAllOpen(false);
+                }}
+            />
         </section>
     );
 }

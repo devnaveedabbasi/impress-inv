@@ -11,17 +11,21 @@ export default function Layout({ children }: { children: ReactNode }) {
     >
       <Navbar />
 
-      <main className="relative min-h-[calc(100vh-57px)] px-4 py-8">
-        <div className="absolute w-20 left-0 top-0 m-4">
+      <main className="relative min-h-[calc(100vh-57px)] px-3 py-6 sm:px-4 sm:py-8">
+        {/* Logo — smaller on mobile, moved to top-center-left, doesn't overlap content */}
+        <div className="pointer-events-none absolute left-2 top-2 w-10 sm:left-4 sm:top-4 sm:w-20">
           <Image
             src={Images.Logo}
             alt="Logo"
             width={100}
             height={100}
+            className="h-auto w-full"
+            priority
           />
         </div>
 
-        <div className="mx-auto flex w-full max-w-7xl justify-center">
+        {/* Content wrapper — leaves room for logo on small screens */}
+        <div className="mx-auto flex w-full max-w-7xl justify-center pt-8 sm:pt-0">
           {children}
         </div>
       </main>
