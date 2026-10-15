@@ -9,11 +9,11 @@ import { setCredentials } from "@/store/slices/auth";
 import { Icon } from "@iconify/react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { loginSchema } from "@/lib/validations/auth";
+import { loginSchema } from "@/validations/auth";
 import { useForm } from "@/hooks/useForm";
-import { Images } from "@/utlis/images";
+import { Images } from "@/utils/images";
 import api from "@/lib/axios";
-import { LOGIN } from "@/utlis/apiRoutes";
+import { LOGIN } from "@/utils/apiRoutes";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +33,7 @@ export default function LoginPage() {
       const response = await api.post(LOGIN, data);
       const resData = response.data.data;
       localStorage.setItem("token", resData.token);
+      localStorage.setItem("user", JSON.stringify(resData.user));
       dispatch(setCredentials({ user: resData.user, token: resData.token }));
 
       // Use window.location.href to guarantee a full navigation to home so AuthGuard can run fresh

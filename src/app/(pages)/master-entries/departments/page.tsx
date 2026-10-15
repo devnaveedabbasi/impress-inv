@@ -5,8 +5,8 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import useDebounce from "@/hooks/useDebounce";
-import { departmentSchema, type DepartmentFormValues } from "@/lib/validations/master";
-import { DEPARTMENTS } from "@/utlis/apiRoutes";
+import { departmentSchema, type DepartmentFormValues } from "@/validations/master";
+import { DEPARTMENTS } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -95,7 +95,7 @@ export default function DepartmentPage() {
         },
     });
 
-    
+
     const debouncedId = useDebounce(values?.id, 500);
     const departmentColumns: ViewAllColumn<DepartmentRow>[] = [
         { key: "id", header: "Department ID" },
@@ -104,48 +104,48 @@ export default function DepartmentPage() {
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
-        if (!debouncedId) return;
+            if (!debouncedId) return;
 
-        if (debouncedId === String(nextId)) {
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        setIsIdLoading(true);
-        try {
-            const { data } = await api.get(`${DEPARTMENTS}/${debouncedId}`);
-            if (data.data) {
-                setValues({ id: String(data.data.id), name: data.data.name });
-                setIsNewMode(false);
-                setIsEditing(false);
-                toast.success("Department found");
-            } else {
-                toast.error("Department not found");
+            if (debouncedId === String(nextId)) {
                 setValues({ ...initialValues, id: nextId });
                 setIsNewMode(true);
+                setIsEditing(true);
+                return;
             }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
-            } else {
-                toast.error("Invalid Department ID");
+
+            if (!canView) {
+                toast.error("You do not have permission to view or search for this record.");
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+                setIsEditing(true);
+                return;
             }
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-        } finally {
-            setIsIdLoading(false);
+
+            setIsIdLoading(true);
+            try {
+                const { data } = await api.get(`${DEPARTMENTS}/${debouncedId}`);
+                if (data.data) {
+                    setValues({ id: String(data.data.id), name: data.data.name });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    toast.success("Department found");
+                } else {
+                    toast.error("Department not found");
+                    setValues({ ...initialValues, id: nextId });
+                    setIsNewMode(true);
+                }
+            } catch (error: any) {
+                if (error.response?.status === 403) {
+                    toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+                } else {
+                    toast.error("Invalid Department ID");
+                }
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+            } finally {
+                setIsIdLoading(false);
+            }
         }
-    }
         fetchDebouncedId();
     }, [debouncedId]);;
 
@@ -161,7 +161,7 @@ export default function DepartmentPage() {
                     onChange={handleInputChange("id")}
                     error={errors.id}
                     disabled={isIdLoading}
-                min={1}
+                    min={1}
                     max={Number(nextId) || 1}
                 />
                 <LabeledField

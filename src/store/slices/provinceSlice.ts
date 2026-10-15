@@ -1,9 +1,7 @@
-import { createAsyncThunk, createEntityAdapter, createSlice, type EntityState, type PayloadAction } from "@reduxjs/toolkit";
-import api from "@/lib/axios";
-import { offlineSyncService } from "@/lib/offlineSyncService";
-import { PROVINCES } from "@/utlis/apiRoutes";
-import { isOffline } from "@/store/utils/network";
-import { generateTempId, isTempId } from "@/store/utils/tempId";
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { PROVINCES } from "@/utils/apiRoutes";
+import { createOfflineThunks, type Pagination } from "@/utils/createofflinethunks";
+import type { ProvinceFormValues } from "@/validations/master";
 
 export type ProvinceRecord = {
   id: string | number;
@@ -13,232 +11,88 @@ export type ProvinceRecord = {
 };
 
 export type ProvinceAsyncStatus = "idle" | "loading" | "succeeded" | "failed";
-export type ProvincePageRequest = { page: number; limit: number };
-export type ProvincePagination = { page: number; limit: number; total: number; totalPages: number };
+export type ProvincePagination = Pagination;
 
-interface ProvinceState extends EntityState<ProvinceRecord, string | number> {
-  apiStatus: ProvinceAsyncStatus;
-  apiError: string | null;
+interface ProvinceState {
+  list: ProvinceRecord[];
+  listStatus: ProvinceAsyncStatus;
+  listError: string | null;
+  pagination: ProvincePagination;
   nextId: string;
   currentRecord: ProvinceRecord | null;
   isNewMode: boolean;
   isEditing: boolean;
   isIdLoading: boolean;
   isLookingUp: boolean;
-  pendingOptions: Array<{ label: string; value: string; _offlinePending?: boolean }>;
-  listStatus: ProvinceAsyncStatus;
-  listError: string | null;
-  pagination: ProvincePagination;
   isSubmitting: boolean;
-  offlineQueueVersion: number;
+  apiError: string | null;
 }
 
-const provinceAdapter = createEntityAdapter<ProvinceRecord, string | number>({
-  selectId: (record: ProvinceRecord) => String(record.id),
-});
-
-const initialState: ProvinceState = provinceAdapter.getInitialState({
-  apiStatus: "idle",
-  apiError: null,
+const initialState: ProvinceState = {
+  list: [],
+  listStatus: "idle",
+  listError: null,
+  pagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
   nextId: "",
   currentRecord: null,
   isNewMode: true,
   isEditing: true,
   isIdLoading: false,
   isLookingUp: false,
-  pendingOptions: [],
-  listStatus: "idle",
-  listError: null,
-  pagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
   isSubmitting: false,
-  offlineQueueVersion: 0,
+  apiError: null,
+};
+
+/* ---------------- Thunks ---------------- */
+const provinceThunks = createOfflineThunks<ProvinceRecord, ProvinceFormValues>({
+  name: "province",
+  url: PROVINCES,
+  label: "province",
+  tempEntity: "prov",
+  buildBody: (p) => ({
+    name: p.name,
+  }),
 });
 
-const toProvinceRecord = (value: any): ProvinceRecord => ({
-  id: value?.id ?? value?.tempId ?? generateTempId("prov"),
-  name: String(value?.name ?? ""),
-  _offlinePending: Boolean(value?._offlinePending),
-  tempId: value?.tempId ?? undefined,
-});
-
-export const fetchProvinceNextId = createAsyncThunk<{ nextId: string; isTemp: boolean }, void, { rejectValue: string }>(
-  "province/fetchNextId",
-  async (_, { rejectWithValue }) => {
-    if (isOffline()) {
-      return { nextId: generateTempId("prov"), isTemp: true };
-    }
-
-    try {
-      const response = await api.get<{ data: { nextId: string | number } }>(`${PROVINCES}/next-id`, {
-        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-      });
-      return { nextId: String(response.data.data.nextId), isTemp: false };
-    } catch (error: any) {
-      if (error?.response) {
-        return rejectWithValue(error.response.data?.message || "Unable to fetch the next province ID.");
-      }
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        return rejectWithValue(
-          `Province API request failed. Check backend/authentication. (${error?.message || "Network error"})`
-        );
-      }
-      return { nextId: generateTempId("prov"), isTemp: true };
-    }
-  }
-);
-
-export const fetchAllProvinces = createAsyncThunk<{ rows: ProvinceRecord[]; pagination: ProvincePagination }, ProvincePageRequest, { rejectValue: string }>(
-  "province/fetchAll",
-  async ({ page, limit }, { rejectWithValue }) => {
-    if (isOffline()) {
-      const cached = await offlineSyncService.getCachedResponse(PROVINCES);
-      if (!cached) return rejectWithValue("Offline: no cached data");
-      const rawRows = Array.isArray(cached?.data) ? cached.data : Array.isArray(cached) ? cached : [];
-      const rows = rawRows.map(toProvinceRecord);
-      return { rows, pagination: { page, limit, total: rows.length, totalPages: Math.max(1, Math.ceil(rows.length / limit)) } };
-    }
-    try {
-      const response = await api.get<{ data: ProvinceRecord[]; meta?: Partial<ProvincePagination> }>(PROVINCES, { params: { page, limit } });
-      const rows = Array.isArray(response.data?.data) ? response.data.data.map(toProvinceRecord) : [];
-      const meta = response.data.meta ?? {};
-      return { rows, pagination: { page: meta.page ?? page, limit: meta.limit ?? limit, total: meta.total ?? rows.length, totalPages: meta.totalPages ?? Math.max(1, Math.ceil((meta.total ?? rows.length) / (meta.limit ?? limit))) } };
-    } catch (error: any) {
-      try {
-        const cached = await offlineSyncService.getCachedResponse(PROVINCES);
-        const rows = Array.isArray(cached?.data) ? cached.data : Array.isArray(cached) ? cached : [];
-        const records = rows.map(toProvinceRecord);
-        return { rows: records, pagination: { page, limit, total: records.length, totalPages: Math.max(1, Math.ceil(records.length / limit)) } };
-      } catch {
-        return rejectWithValue(error?.response?.data?.message || "Failed to load provinces.");
-      }
-    }
-  }
-);
-
-export const fetchProvinceById = createAsyncThunk<ProvinceRecord, string | number, { rejectValue: string }>(
-  "province/fetchById",
-  async (id, { rejectWithValue }) => {
-    const normalizedId = String(id);
-    if (isOffline()) {
-      const cached = await offlineSyncService.getCachedResponse(`${PROVINCES}/${encodeURIComponent(normalizedId)}`);
-      const record = cached?.data ?? cached;
-      if (record) return toProvinceRecord(record);
-      const listCache = await offlineSyncService.getCachedResponse(PROVINCES);
-      const rows = Array.isArray(listCache?.data) ? listCache.data : Array.isArray(listCache) ? listCache : [];
-      const found = rows.find((row: { id?: string | number; tempId?: string }) => String(row.id) === normalizedId || String(row.tempId) === normalizedId);
-      return found ? toProvinceRecord(found) : rejectWithValue("Offline: no cached data");
-    }
-
-    try {
-      const response = await api.get<{ data: ProvinceRecord }>(`${PROVINCES}/${encodeURIComponent(normalizedId)}`);
-      const record = response.data?.data ?? null;
-      if (!record) return rejectWithValue("Province not found.");
-      return toProvinceRecord(record);
-    } catch (error: any) {
-      try {
-        const cached = await offlineSyncService.getCachedResponse(PROVINCES);
-        const rows = Array.isArray(cached?.data) ? cached.data : Array.isArray(cached) ? cached : [];
-        const record = rows.find((row: any) => String(row.id) === normalizedId || String(row.tempId) === normalizedId);
-        if (record) return toProvinceRecord(record);
-      } catch {
-        // ignore cache fallback errors
-      }
-      return rejectWithValue(error?.response?.data?.message || "Province not found.");
-    }
-  }
-);
-
-export const createProvince = createAsyncThunk<ProvinceRecord, { id?: string | number; name: string }, { rejectValue: string }>(
-  "province/create",
-  async (payload, { rejectWithValue }) => {
-    const tempId = payload.id && isTempId(payload.id) ? String(payload.id) : generateTempId("prov");
-
-    if (isOffline()) {
-      const queued = await offlineSyncService.enqueueMutation({
-        method: "post",
-        url: PROVINCES,
-        data: { name: payload.name, tempId, _tempId: tempId },
-      } as any);
-      const record = { id: tempId, name: payload.name, _offlinePending: true, tempId, ...(queued.data?.data ?? {}) };
-      return toProvinceRecord(record);
-    }
-
-    try {
-      const response = await api.post<{ data: ProvinceRecord }>(PROVINCES, { name: payload.name, _tempId: tempId });
-      const record = response.data?.data ?? { id: tempId, name: payload.name };
-      return toProvinceRecord(record);
-    } catch (error: any) {
-      const fallback = await offlineSyncService.enqueueMutation({
-        method: "post",
-        url: PROVINCES,
-        data: { name: payload.name, tempId, _tempId: tempId },
-      } as any);
-      const record = { id: tempId, name: payload.name, _offlinePending: true, tempId, ...(fallback.data?.data ?? {}) };
-      return toProvinceRecord(record);
-    }
-  }
-);
-
-export const updateProvince = createAsyncThunk<ProvinceRecord, { id: string | number; name: string }, { rejectValue: string }>(
-  "province/update",
-  async (payload, { rejectWithValue }) => {
-    const targetId = String(payload.id);
-    if (isOffline()) {
-      const queued = await offlineSyncService.enqueueMutation({
-        method: "put",
-        url: `${PROVINCES}/${encodeURIComponent(targetId)}`,
-        data: { name: payload.name, _tempId: targetId },
-      } as any);
-      const record = queued.data?.data || { id: targetId, name: payload.name };
-      return toProvinceRecord(record);
-    }
-
-    try {
-      const response = await api.put<{ data: ProvinceRecord }>(`${PROVINCES}/${encodeURIComponent(targetId)}`, { name: payload.name });
-      const record = response.data?.data ?? { id: targetId, name: payload.name };
-      return toProvinceRecord(record);
-    } catch (error: any) {
-      const fallback = await offlineSyncService.enqueueMutation({
-        method: "put",
-        url: `${PROVINCES}/${encodeURIComponent(targetId)}`,
-        data: { name: payload.name, _tempId: targetId },
-      } as any);
-      const record = fallback.data?.data || { id: targetId, name: payload.name };
-      return toProvinceRecord(record);
-    }
-  }
-);
-
+export const fetchProvinceNextId = provinceThunks.fetchNextId;
+export const fetchAllProvinces = provinceThunks.fetchAll;
+export const fetchProvinceById = provinceThunks.fetchById;
+export const createProvince = provinceThunks.create;
+export const updateProvince = provinceThunks.update;
 export const fetchProvinces = fetchAllProvinces;
+
+/* ---------------- Slice ---------------- */
 
 export const provinceSlice = createSlice({
   name: "province",
   initialState,
   reducers: {
-    setReconciledId: (state, action: PayloadAction<{ tempId: string; realId: string | number; resourceUrl: string }>) => {
+    setNewMode(state, action: PayloadAction<boolean>) {
+      state.isNewMode = action.payload;
+      if (action.payload) state.isEditing = true;
+    },
+    setEditing(state, action: PayloadAction<boolean>) {
+      state.isEditing = action.payload;
+    },
+    setCurrentRecord: (state, action: PayloadAction<ProvinceRecord | null>) => {
+      state.currentRecord = action.payload;
+    },
+    resetForm: (state) => {
+      state.currentRecord = null;
+      state.isNewMode = true;
+      state.isEditing = true;
+      state.apiError = null;
+    },
+    clearApiError: (state) => {
+      state.apiError = null;
+    },
+    setReconciledId: (state, action: PayloadAction<{ tempId: string; realId: string | number; resourceUrl?: string }>) => {
       const { tempId, realId } = action.payload;
-      const ids = provinceAdapter.getSelectors().selectAll(state);
-      const match = ids.find((item) => String(item.id) === String(tempId) || String(item.tempId) === String(tempId));
-
-      if (match) {
-        provinceAdapter.updateOne(state, {
-          id: String(match.id),
-          changes: {
-            id: realId,
-            tempId: undefined,
-            _offlinePending: false,
-          },
-        });
-      }
-
-      const pending = state.pendingOptions.find((item) => String(item.value) === String(tempId));
-      if (pending) {
-        state.pendingOptions = state.pendingOptions.map((item) =>
-          String(item.value) === String(tempId)
-            ? { ...item, value: String(realId), _offlinePending: false }
-            : item
-        );
-      }
+      state.list = state.list.map((row) =>
+        String(row.id) === String(tempId) || String(row.tempId) === String(tempId)
+          ? { ...row, id: realId, _offlinePending: false, tempId: undefined }
+          : row
+      );
 
       if (state.currentRecord && (String(state.currentRecord.id) === String(tempId) || String(state.currentRecord.tempId) === String(tempId))) {
         state.currentRecord = {
@@ -253,138 +107,123 @@ export const provinceSlice = createSlice({
         state.nextId = String(realId);
       }
     },
-    setCurrentRecord: (state, action: PayloadAction<ProvinceRecord | null>) => {
-      state.currentRecord = action.payload;
-      state.isNewMode = !Boolean(action.payload);
-      state.isEditing = Boolean(action.payload);
-    },
-    resetForm: (state) => {
-      state.currentRecord = null;
-      state.isNewMode = true;
-      state.isEditing = true;
-      state.apiError = null;
-    },
-    setNewMode: (state, action: PayloadAction<boolean>) => {
-      state.isNewMode = action.payload;
-      if (action.payload) state.isEditing = true;
-    },
-    setEditing: (state, action: PayloadAction<boolean>) => {
-      state.isEditing = action.payload;
-    },
-    setOfflineQueueVersion: (state, action: PayloadAction<number>) => {
-      state.offlineQueueVersion = action.payload;
-    },
-    clearApiError: (state) => {
-      state.apiError = null;
-    },
-    setPendingOptions: (state, action: PayloadAction<Array<{ label: string; value: string; _offlinePending?: boolean }>>) => {
-      state.pendingOptions = action.payload;
+    setNextId: (state, action: PayloadAction<string>) => {
+      state.nextId = action.payload;
+      state.isIdLoading = false;
     },
   },
   extraReducers: (builder) => {
     builder
+      /* fetchNextId */
       .addCase(fetchProvinceNextId.pending, (state) => {
-        state.apiStatus = "loading";
         state.isIdLoading = true;
+        state.apiError = null;
       })
       .addCase(fetchProvinceNextId.fulfilled, (state, action) => {
-        state.apiStatus = "succeeded";
         state.isIdLoading = false;
         state.nextId = action.payload.nextId;
-        state.isNewMode = true;
-        state.isEditing = true;
-        state.currentRecord = null;
       })
       .addCase(fetchProvinceNextId.rejected, (state, action) => {
-        state.apiStatus = "failed";
         state.isIdLoading = false;
-        state.isNewMode = true;
-        state.isEditing = true;
-        state.currentRecord = null;
-        state.apiError = action.payload ?? "Failed to fetch next province ID.";
+        state.apiError = action.payload ?? "Unable to fetch the next province ID.";
       })
+
+      /* fetchAll */
       .addCase(fetchAllProvinces.pending, (state) => {
-        state.apiStatus = "loading";
         state.listStatus = "loading";
         state.listError = null;
       })
       .addCase(fetchAllProvinces.fulfilled, (state, action) => {
-        state.apiStatus = "succeeded";
         state.listStatus = "succeeded";
+        const incoming = action.payload.data || [];
+        const pendingOffline = state.list.filter(
+          (item) => item._offlinePending || (item.id && String(item.id).startsWith("temp-"))
+        );
+        const mergedMap = new Map<string, ProvinceRecord>();
+        // Add pending offline items first
+        pendingOffline.forEach((item) => mergedMap.set(String(item.id), item));
+        // Add incoming items (will not overwrite pending temp IDs)
+        incoming.forEach((item) => {
+          if (!mergedMap.has(String(item.id))) {
+            mergedMap.set(String(item.id), item);
+          }
+        });
+        state.list = Array.from(mergedMap.values());
         state.pagination = action.payload.pagination;
-        provinceAdapter.setAll(state, action.payload.rows);
       })
       .addCase(fetchAllProvinces.rejected, (state, action) => {
-        state.apiStatus = "failed";
         state.listStatus = "failed";
-        state.listError = action.payload ?? "Failed to load provinces.";
-        state.apiError = state.listError;
+        state.listError = action.payload ?? "Failed to load provinces";
       })
+
+      /* fetchById */
       .addCase(fetchProvinceById.pending, (state) => {
-        state.apiStatus = "loading";
         state.isLookingUp = true;
+        state.apiError = null;
       })
       .addCase(fetchProvinceById.fulfilled, (state, action) => {
-        state.apiStatus = "succeeded";
         state.isLookingUp = false;
         state.currentRecord = action.payload;
         state.isNewMode = false;
         state.isEditing = false;
-        provinceAdapter.upsertOne(state, action.payload);
       })
       .addCase(fetchProvinceById.rejected, (state, action) => {
-        state.apiStatus = "failed";
         state.isLookingUp = false;
         state.currentRecord = null;
         state.isNewMode = true;
         state.isEditing = true;
-        state.apiError = action.payload ?? "Province lookup failed.";
+        if (action.payload && !String(action.payload).includes("not found")) {
+          state.apiError = action.payload;
+        }
       })
+
+      /* create */
       .addCase(createProvince.pending, (state) => {
-        state.apiStatus = "loading";
         state.isSubmitting = true;
+        state.apiError = null;
       })
       .addCase(createProvince.fulfilled, (state, action) => {
-        state.apiStatus = "succeeded";
         state.isSubmitting = false;
-        state.currentRecord = action.payload;
-        state.isNewMode = true;
-        state.isEditing = true;
-        provinceAdapter.upsertOne(state, action.payload);
+        if (action.payload?.data) {
+          const item = action.payload.data;
+          const exists = state.list.some(
+            (r) => String(r.id) === String(item.id) || (item.tempId && String(r.tempId) === String(item.tempId))
+          );
+          if (!exists) {
+            state.list.unshift(item);
+          }
+        }
       })
       .addCase(createProvince.rejected, (state, action) => {
-        state.apiStatus = "failed";
         state.isSubmitting = false;
-        state.apiError = action.payload ?? "Failed to create province.";
+        state.apiError = action.payload ?? "Failed to save province";
       })
+
+      /* update */
       .addCase(updateProvince.pending, (state) => {
-        state.apiStatus = "loading";
         state.isSubmitting = true;
+        state.apiError = null;
       })
-      .addCase(updateProvince.fulfilled, (state, action) => {
-        state.apiStatus = "succeeded";
+      .addCase(updateProvince.fulfilled, (state) => {
         state.isSubmitting = false;
-        state.currentRecord = action.payload;
-        state.isNewMode = false;
         state.isEditing = false;
-        provinceAdapter.upsertOne(state, action.payload);
+        state.currentRecord = null;
       })
       .addCase(updateProvince.rejected, (state, action) => {
-        state.apiStatus = "failed";
         state.isSubmitting = false;
-        state.apiError = action.payload ?? "Failed to update province.";
+        state.apiError = action.payload ?? "Failed to update province";
       });
   },
 });
 
 export const {
-  resetForm,
   setNewMode,
   setEditing,
-  clearApiError,
   setCurrentRecord,
+  resetForm,
+  clearApiError,
   setReconciledId,
-  setPendingOptions,
+  setNextId,
 } = provinceSlice.actions;
 
 export const provinceReducer = provinceSlice.reducer;

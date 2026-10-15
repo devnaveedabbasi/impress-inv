@@ -1,6 +1,6 @@
 import { InputHTMLAttributes, ReactNode, forwardRef, useId, useState } from "react";
 import { Icon } from "@iconify/react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;

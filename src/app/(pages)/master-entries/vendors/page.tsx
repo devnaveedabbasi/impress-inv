@@ -6,17 +6,17 @@ import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import useDebounce from "@/hooks/useDebounce";
-import { vendorSchema, type VendorFormValues } from "@/lib/validations/master";
-import { VENDORS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
+import { vendorSchema, type VendorFormValues } from "@/validations/master";
+import { VENDORS, CITIES, PROVINCES } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { offlineSyncService } from "@/lib/offlineSyncService";
-import { generateTempId, isTempId } from "@/store/utils/tempId";
-import { isOffline } from "@/store/utils/network";
+import { generateTempId, isTempId } from "@/utils/tempId";
+import { isOffline } from "@/utils/network";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const initialValues: VendorFormValues = {
     id: "",
@@ -219,79 +219,79 @@ export default function VendorPage() {
         fetchCitiesByProvince(provinceId);
     };
 
-    
+
     const debouncedId = useDebounce(values?.id, 500);
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
-        if (!debouncedId) return;
+            if (!debouncedId) return;
 
-        if (debouncedId === String(nextId)) {
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
+            if (debouncedId === String(nextId)) {
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+                setIsEditing(true);
+                return;
+            }
 
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
+            if (!canView) {
+                toast.error("You do not have permission to view or search for this record.");
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+                setIsEditing(true);
+                return;
+            }
 
-        setIsIdLoading(true);
-        try {
-            const cached = isOffline()
-                ? await offlineSyncService.getCachedResponse(VENDORS)
-                : null;
-            const { data } = cached
-                ? { data: { data: (Array.isArray(cached.data) ? cached.data : []).find((v: any) => String(v.id) === String(debouncedId)) } }
-                : await api.get(`${VENDORS}/${debouncedId}`);
-            if (data.data) {
-                const v = data.data;
-                const provinceId = String(v.provinceId);
-                await fetchCitiesByProvince(provinceId);
+            setIsIdLoading(true);
+            try {
+                const cached = isOffline()
+                    ? await offlineSyncService.getCachedResponse(VENDORS)
+                    : null;
+                const { data } = cached
+                    ? { data: { data: (Array.isArray(cached.data) ? cached.data : []).find((v: any) => String(v.id) === String(debouncedId)) } }
+                    : await api.get(`${VENDORS}/${debouncedId}`);
+                if (data.data) {
+                    const v = data.data;
+                    const provinceId = String(v.provinceId);
+                    await fetchCitiesByProvince(provinceId);
 
-                setValues({
-                    id: String(v.id),
-                    vendorName: v.vendorName,
-                    address: v.address,
-                    provinceId,
-                    cityId: String(v.cityId),
-                    contactNo: v.contactNo,
-                    saleTaxNo: v.saleTaxNo,
-                    NICNo: v.NICNo,
-                    mobileNo: v.mobileNo,
-                    daysLimit: String(v.daysLimit),
-                    amoutLimit: String(v.amoutLimit),
-                    NTNNo: v.NTNNo,
-                    openingBalance: String(v.openingBalance),
-                    CNICNo: v.CNICNo,
-                });
-                setIsNewMode(false);
-                setIsEditing(false);
-                toast.success("Vendor found");
-            } else {
-                toast.error("Vendor not found");
+                    setValues({
+                        id: String(v.id),
+                        vendorName: v.vendorName,
+                        address: v.address,
+                        provinceId,
+                        cityId: String(v.cityId),
+                        contactNo: v.contactNo,
+                        saleTaxNo: v.saleTaxNo,
+                        NICNo: v.NICNo,
+                        mobileNo: v.mobileNo,
+                        daysLimit: String(v.daysLimit),
+                        amoutLimit: String(v.amoutLimit),
+                        NTNNo: v.NTNNo,
+                        openingBalance: String(v.openingBalance),
+                        CNICNo: v.CNICNo,
+                    });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    toast.success("Vendor found");
+                } else {
+                    toast.error("Vendor not found");
+                    setValues({ ...initialValues, id: nextId });
+                    setCities([]);
+                    setIsNewMode(true);
+                }
+            } catch (error: any) {
+                if (error.response?.status === 403) {
+                    toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+                } else {
+                    toast.error("Vendor not found");
+                }
                 setValues({ ...initialValues, id: nextId });
                 setCities([]);
                 setIsNewMode(true);
+            } finally {
+                setIsIdLoading(false);
             }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
-            } else {
-                toast.error("Vendor not found");
-            }
-            setValues({ ...initialValues, id: nextId });
-            setCities([]);
-            setIsNewMode(true);
-        } finally {
-            setIsIdLoading(false);
         }
-    }
         fetchDebouncedId();
     }, [debouncedId]);;
 
@@ -308,9 +308,9 @@ export default function VendorPage() {
                         onChange={handleInputChange("id")}
                         error={errors.id}
                         wrapperClassName="w-24"
-                    min={1}
-                    max={Number(nextId) || 1}
-                />
+                        min={1}
+                        max={Number(nextId) || 1}
+                    />
                     <LabeledField
                         label="Vendor Name"
                         value={values.vendorName}

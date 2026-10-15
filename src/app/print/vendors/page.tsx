@@ -1,7 +1,7 @@
 "use client";
 
 import { PrintableProfileList } from "@/components/print/PrintableProfileList";
-import { VENDORS } from "@/utlis/apiRoutes";
+import { VENDORS } from "@/utils/apiRoutes";
 
 export default function VendorPrintPage() {
     return (

@@ -7,19 +7,19 @@ import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import useDebounce from "@/hooks/useDebounce";
-import { rejectionReturnToVendorSchema, type RejectionReturnToVendorFormValues } from "@/lib/validations/master";
-import { REJECTION_RETURN_TO_VENDOR, VENDORS } from "@/utlis/apiRoutes";
+import { rejectionReturnToVendorSchema, type RejectionReturnToVendorFormValues } from "@/validations/master";
+import { REJECTION_RETURN_TO_VENDOR, VENDORS } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ itemName: "", rej: "", report: "" });
 const initialValues: RejectionReturnToVendorFormValues = {
     id: "",
-        date: new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split('T')[0],
     vendorName: "",
     address: "",
     contactNo: "",
@@ -37,7 +37,7 @@ export default function RejectionReturnToVendorPage() {
     const [isEditing, setIsEditing] = useState(true);
 
     const { hasPermission } = usePermissions();
-    const canCreate = hasPermission("rejection-return", "create") || true; 
+    const canCreate = hasPermission("rejection-return", "create") || true;
     const canUpdate = hasPermission("rejection-return", "update") || true;
     const canView = hasPermission("rejection-return", "view") || true;
     const rejectionColumns: ViewAllColumn<ViewAllRow>[] = [
@@ -242,7 +242,7 @@ export default function RejectionReturnToVendorPage() {
                         max={Number(nextId) || 1}
                         wrapperClassName="w-32"
                     />
-                    
+
                     <LabeledField
                         type="date"
                         label="Date"
@@ -358,11 +358,11 @@ export default function RejectionReturnToVendorPage() {
                 </div>
                 {canAddRow && isEditing && (
                     <div className="flex justify-end mt-2">
-                        <Button 
-                            type="button" 
-                            variant="secondary" 
-                            shape="rounded" 
-                            onClick={addRow} 
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            shape="rounded"
+                            onClick={addRow}
                             className="border border-zinc-400 bg-white px-4 py-1.5 text-sm hover:bg-zinc-50"
                         >
                             + Add More

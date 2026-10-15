@@ -11,12 +11,12 @@ import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
-import { citySchema, type CityFormValues } from "@/lib/validations/master";
+import { citySchema, type CityFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { isTempId } from "@/store/utils/tempId";
+import { generateTempId, isTempId } from "@/utils/tempId";
 import {
-    clearApiError, createCity, fetchAllCities, fetchCityById, fetchCityNextId, fetchProvinceOptions,
-    setCurrentRecord, setEditing, setNewMode, updateCity, type CityRecord,
+    clearApiError, createCity, fetchAllCities, fetchCityById, fetchCityNextId,
+    setCurrentRecord, setEditing, setNewMode, setNextId, updateCity, type CityRecord,
 } from "@/store/slices/citySlice";
 import { fetchAllProvinces } from "@/store/slices/provinceSlice";
 import {
@@ -51,6 +51,7 @@ export default function CityPage() {
     const canUpdate = hasPermission("city", "update");
     const canView = hasPermission("city", "view");
 
+    console.log(provinceOptions, 'province')
     const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
         useForm<CityFormValues>({ resolver: zodResolver(citySchema), defaultValues: initialValues });
     const watchedId = watch("id");
@@ -61,14 +62,58 @@ export default function CityPage() {
     useEffect(() => {
         dispatch(fetchCityNextId());
         dispatch(fetchAllCities({ page: 1, limit: 10 }));
-        dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
-        dispatch(fetchProvinceOptions());
+        dispatch(fetchAllProvinces({ page: 1, limit: 100 }));
     }, [dispatch]);
 
-    // New mode mein nextId aane par reset
+    // New mode mein nextId aane par field update karo (offline -> temp, online -> real)
     useEffect(() => {
-        if (isNewMode && nextId) reset({ id: String(nextId), name: "", provinceId: "" });
-    }, [isNewMode, nextId, reset]);
+        if (isNewMode && nextId) {
+            setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
+        }
+    }, [isNewMode, nextId, setValue]);
+
+    // Instant toggle on network changes without requiring refresh:
+    // Online -> immediately fetch real ID from server
+    // Offline -> immediately set temp ID
+    useEffect(() => {
+        const handleOnline = () => {
+            if (isNewMode) {
+                dispatch(fetchCityNextId()).unwrap().then((res) => {
+                    setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
+                }).catch(() => { });
+            }
+        };
+        const handleOffline = () => {
+            if (isNewMode) {
+                const temp = generateTempId("city");
+                dispatch(setNextId(temp));
+                setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+            }
+        };
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, [isNewMode, dispatch, setValue]);
+
+    // Reconcile background sync
+    useEffect(() => {
+        const handleReconciled = (event: Event) => {
+            const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+            if (!detail) return;
+            const { tempId, realId } = detail;
+            if (String(watch("id")) === String(tempId)) {
+                setValue("id", String(realId), { shouldDirty: false });
+            }
+            if (String(watch("provinceId")) === String(tempId)) {
+                setValue("provinceId", String(realId), { shouldDirty: false });
+            }
+        };
+        window.addEventListener("offline-id-reconciled", handleReconciled);
+        return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
+    }, [setValue, watch]);
 
     // View mode mein selected record aane par reset
     useEffect(() => {
@@ -115,6 +160,11 @@ export default function CityPage() {
 
     // FIX #3: nextId already ho to API dobara mat maaro (5-7 sec delay khatam)
     const handleNew = async () => {
+        if (isNewMode && (watchedId || nextId)) {
+            dispatch(setEditing(true));
+            reset({ id: String(watchedId || nextId), name: "", provinceId: "" });
+            return;
+        }
         if (nextId) {
             dispatch(setCurrentRecord(null));
             dispatch(setNewMode(true));
@@ -176,7 +226,10 @@ export default function CityPage() {
                         label="ID"
                         type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
                         {...register("id", { valueAsNumber: false })}
-                        value={String(watchedId || nextId)}
+                        value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                        onChange={(e) => {
+                            setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
+                        }}
                         min={1}
                         loading={isBootstrapping}
                         error={errors.id?.message}
@@ -192,15 +245,15 @@ export default function CityPage() {
                     <LabeledSelect
                         label="Province"
                         value={watchedProvinceId ?? ""}
-                        options={provincesStatus === "loading" ? [] : provinceOptions}
+                        options={provinceOptions}
                         placeholder={
-                            provincesStatus === "loading"
+                            provincesStatus === "loading" && provinceOptions.length === 0
                                 ? "Loading provinces..."
-                                : provincesStatus === "failed"
+                                : provincesStatus === "failed" && provinceOptions.length === 0
                                     ? "Failed to load provinces"
                                     : "Select Province"
                         }
-                        disabled={!isEditing || provincesStatus === "loading"}
+                        disabled={!isEditing || (provincesStatus === "loading" && provinceOptions.length === 0)}
                         isLoading={provincesStatus === "loading"}
                         onChange={(value) =>
                             setValue("provinceId", value, { shouldValidate: true, shouldDirty: true })

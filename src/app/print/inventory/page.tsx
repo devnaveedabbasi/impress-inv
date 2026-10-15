@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { INVENTORY } from "@/utlis/apiRoutes";
+import { INVENTORY } from "@/utils/apiRoutes";
 
 const COMPANY_NAME = "SINDH AUTO INDUSTRIES PVT LTD";
 

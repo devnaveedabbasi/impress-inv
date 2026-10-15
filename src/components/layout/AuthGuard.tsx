@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import api from "@/lib/axios";
-import { USER_DETAILS } from "@/utlis/apiRoutes";
+import { USER_DETAILS } from "@/utils/apiRoutes";
 import { setCredentials, logoutUser } from "@/store/slices/auth";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -39,16 +39,36 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       try {
         const { data } = await api.get(USER_DETAILS);
         dispatch(setCredentials({ user: data.data, token }));
+        localStorage.setItem("user", JSON.stringify(data.data));
 
         if (pathname === "/auth/login") {
           router.push("/");
         }
-      } catch (error) {
-        console.error("Auth check failed", error);
-        localStorage.removeItem("token");
-        dispatch(logoutUser());
-        if (pathname !== "/auth/login") {
-          router.push("/auth/login");
+      } catch (error: any) {
+        // Agar network band hai ya server reachable nahi hai (offline state)
+        if (!navigator.onLine || error.code === "ERR_NETWORK" || !error.response) {
+          const cachedUserStr = localStorage.getItem("user");
+          if (cachedUserStr) {
+            try {
+              const cachedUser = JSON.parse(cachedUserStr);
+              dispatch(setCredentials({ user: cachedUser, token }));
+              if (pathname === "/auth/login") router.push("/");
+              return;
+            } catch {
+              // fallback to normal
+            }
+          }
+        }
+
+        // Sirf tab logout karo jab server ne explicitly 401 Unauthorized bola ho
+        if (error.response?.status === 401) {
+          console.error("Session expired", error);
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          dispatch(logoutUser());
+          if (pathname !== "/auth/login") {
+            router.push("/auth/login");
+          }
         }
       } finally {
         setLoading(false);

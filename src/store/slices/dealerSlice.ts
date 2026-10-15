@@ -1,11 +1,7 @@
-import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import axios from "axios";
-import api from "@/lib/axios";
-import { offlineSyncService } from "@/lib/offlineSyncService";
-import { DEALERS } from "@/utlis/apiRoutes";
-import { generateTempId, isTempId } from "@/store/utils/tempId";
-import { isOffline } from "@/store/utils/network";
-import type { DealerFormValues } from "@/lib/validations/master";
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { DEALERS } from "@/utils/apiRoutes";
+import { createOfflineThunks, type Pagination } from "@/utils/createofflinethunks";
+import type { DealerFormValues } from "@/validations/master";
 
 export type DealerRecord = {
     id: number | string;
@@ -25,8 +21,6 @@ export type DealerRecord = {
     tempId?: string;
 };
 
-type Pagination = { page: number; limit: number; total: number; totalPages: number };
-
 type DealerState = {
     list: DealerRecord[];
     listStatus: "idle" | "loading" | "succeeded" | "failed";
@@ -40,7 +34,6 @@ type DealerState = {
     isLookingUp: boolean;
     currentRecord: DealerRecord | null;
     apiError: string | null;
-    offlineQueueVersion: number;
 };
 
 const initialState: DealerState = {
@@ -56,235 +49,41 @@ const initialState: DealerState = {
     isLookingUp: false,
     currentRecord: null,
     apiError: null,
-    offlineQueueVersion: 0,
 };
 
-/* ---------------- Thunks ---------------- */
-
-export const fetchDealerNextId = createAsyncThunk<
-    { nextId: string },
-    void,
-    { rejectValue: string }
->("dealer/fetchNextId", async (_, { rejectWithValue }) => {
-    if (isOffline()) {
-        const suggested = await offlineSyncService.getSuggestedNextId(DEALERS);
-        return { nextId: suggested };
-    }
-    try {
-        const res = await api.get(`${DEALERS}/next-id`, {
-            params: { _t: Date.now() },
-            headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-        });
-        return { nextId: String(res.data.data.nextId) };
-    } catch (error: unknown) {
-        if (axios.isAxiosError(error)) {
-            if (error.response) {
-                return rejectWithValue(
-                    error.response.data?.message || "Unable to fetch the next dealer ID."
-                );
-            }
-            if (typeof navigator !== "undefined" && navigator.onLine) {
-                return rejectWithValue(
-                    "Dealer next ID request failed while online. Check the API server/CORS configuration."
-                );
-            }
-        }
-
-        if (typeof navigator === "undefined" || navigator.onLine === false) {
-            const suggested = await offlineSyncService.getSuggestedNextId(DEALERS);
-            return { nextId: suggested };
-        }
-        return rejectWithValue("Unable to fetch the next dealer ID.");
-    }
+/* ---------------- Thunks ----------------
+ * All online/offline logic lives in createOfflineThunks.
+ * Here we only say WHICH fields a dealer sends to the server.
+ */
+const dealerThunks = createOfflineThunks<DealerRecord, DealerFormValues>({
+    name: "dealer",
+    url: DEALERS,
+    label: "dealer",
+    tempEntity: "dealer",
+    // Province / city may be records that were also created offline (temp ids)
+    tempRefs: { provinceId: "_tempProvinceId", cityId: "_tempCityId" },
+    buildBody: (p) => ({
+        dealarShipName: p.dealarShipName,
+        contactNo: p.contactNo,
+        address: p.address,
+        saleTaxNo: p.saleTaxNo,
+        NTNNo: p.NTNNo,
+        name: p.name,
+        provinceId: p.provinceId,
+        cityId: p.cityId,
+        mobileNo: p.mobileNo,
+        opeaningBalance: p.opeaningBalance,
+        dealarType: p.dealarType,
+        NICNo: p.NICNo,
+    }),
 });
 
-export const fetchAllDealers = createAsyncThunk<
-    { data: DealerRecord[]; pagination: Pagination },
-    { page: number; limit: number },
-    { rejectValue: string }
->("dealer/fetchAll", async ({ page, limit }, { rejectWithValue }) => {
-    const url = DEALERS;
-    if (isOffline()) {
-        const cached = await offlineSyncService.getCachedResponse(url);
-        if (cached) {
-            const rows: DealerRecord[] = Array.isArray(cached.data) ? cached.data : [];
-            return {
-                data: rows,
-                pagination: cached.meta ?? {
-                    page, limit, total: rows.length,
-                    totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-                },
-            };
-        }
-        return rejectWithValue("Offline: no cached dealers available");
-    }
-    try {
-        const res = await api.get(url, { params: { page, limit } });
-        const rows: DealerRecord[] = Array.isArray(res.data.data) ? res.data.data : [];
-        const meta: Pagination = res.data.meta ?? {
-            page, limit, total: rows.length,
-            totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-        };
-        return { data: rows, pagination: meta };
-    } catch (err: any) {
-        if (!err.response) {
-            const cached = await offlineSyncService.getCachedResponse(url);
-            if (cached) {
-                const rows: DealerRecord[] = Array.isArray(cached.data) ? cached.data : [];
-                return {
-                    data: rows,
-                    pagination: cached.meta ?? {
-                        page, limit, total: rows.length,
-                        totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-                    },
-                };
-            }
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to load dealers");
-    }
-});
-
-export const fetchDealerById = createAsyncThunk<
-    DealerRecord,
-    string,
-    { rejectValue: string }
->("dealer/fetchById", async (id, { rejectWithValue }) => {
-    if (isTempId(id)) {
-        const queue = await offlineSyncService.getQueue();
-        const pending = queue.find(
-            (q) => q.method === "post" && String(q.tempId) === String(id)
-        );
-        if (pending?.data && typeof pending.data === "object") {
-            return { id, ...(pending.data as Record<string, unknown>), _offlinePending: true, tempId: id } as DealerRecord;
-        }
-        return rejectWithValue("Offline: dealer not found in queue");
-    }
-    if (isOffline()) {
-        const cached = await offlineSyncService.getCachedResponse(DEALERS);
-        const rows: DealerRecord[] = Array.isArray(cached?.data) ? cached.data : [];
-        const found = rows.find((r) => String(r.id) === String(id));
-        if (found) return found;
-        return rejectWithValue("Offline: dealer not found in cache");
-    }
-    try {
-        const res = await api.get(`${DEALERS}/${encodeURIComponent(id)}`);
-        return res.data.data;
-    } catch (err: unknown) {
-        if (!axios.isAxiosError(err)) {
-            return rejectWithValue("Failed to fetch dealer");
-        }
-        if (!err.response) {
-            const cached = await offlineSyncService.getCachedResponse(DEALERS);
-            const rows: DealerRecord[] = Array.isArray(cached?.data) ? cached.data : [];
-            const found = rows.find((r) => String(r.id) === String(id));
-            if (found) return found;
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to fetch dealer");
-    }
-});
-
-export const createDealer = createAsyncThunk<
-    { data: DealerRecord; _offline: boolean },
-    DealerFormValues & { id?: string },
-    { rejectValue: string }
->("dealer/create", async (payload, { rejectWithValue }) => {
-    const body: Record<string, unknown> = {
-        dealarShipName: payload.dealarShipName,
-        contactNo: payload.contactNo,
-        address: payload.address,
-        saleTaxNo: payload.saleTaxNo,
-        NTNNo: payload.NTNNo,
-        name: payload.name,
-        provinceId: payload.provinceId,
-        cityId: payload.cityId,
-        mobileNo: payload.mobileNo,
-        opeaningBalance: payload.opeaningBalance,
-        dealarType: payload.dealarType,
-        NICNo: payload.NICNo,
-    };
-
-    if (isTempId(String(payload.provinceId))) body._tempProvinceId = payload.provinceId;
-    if (isTempId(String(payload.cityId))) body._tempCityId = payload.cityId;
-
-    if (isOffline()) {
-        const tempId = payload.id && isTempId(payload.id)
-            ? payload.id
-            : generateTempId("dealer");
-        const res = await offlineSyncService.enqueueMutation({
-            method: "post",
-            url: DEALERS,
-            data: { ...body, _tempId: tempId },
-        });
-        return { data: res.data.data as DealerRecord, _offline: true };
-    }
-
-    try {
-        const res = await api.post(DEALERS, body);
-        return { data: res.data.data, _offline: false };
-    } catch (err: any) {
-        if (!err.response) {
-            const tempId = payload.id && isTempId(payload.id)
-                ? payload.id
-                : generateTempId("dealer");
-            const res = await offlineSyncService.enqueueMutation({
-                method: "post",
-                url: DEALERS,
-                data: { ...body, _tempId: tempId },
-            });
-            return { data: res.data.data as DealerRecord, _offline: true };
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to save dealer");
-    }
-});
-
-/* ⬇️⬇️⬇️ YAHAN CHANGE HUA — return shape { data, _offline } ⬇️⬇️⬇️ */
-export const updateDealer = createAsyncThunk<
-    { data: DealerRecord; _offline: boolean },
-    DealerFormValues & { id: string },
-    { rejectValue: string }
->("dealer/update", async (payload, { rejectWithValue }) => {
-    const body: Record<string, unknown> = {
-        dealarShipName: payload.dealarShipName,
-        contactNo: payload.contactNo,
-        address: payload.address,
-        saleTaxNo: payload.saleTaxNo,
-        NTNNo: payload.NTNNo,
-        name: payload.name,
-        provinceId: payload.provinceId,
-        cityId: payload.cityId,
-        mobileNo: payload.mobileNo,
-        opeaningBalance: payload.opeaningBalance,
-        dealarType: payload.dealarType,
-        NICNo: payload.NICNo,
-    };
-
-    if (isTempId(String(payload.provinceId))) body._tempProvinceId = payload.provinceId;
-    if (isTempId(String(payload.cityId))) body._tempCityId = payload.cityId;
-
-    if (isTempId(payload.id) || isOffline()) {
-        const res = await offlineSyncService.enqueueMutation({
-            method: "put",
-            url: `${DEALERS}/${payload.id}`,
-            data: body,
-        });
-        return { data: res.data.data as DealerRecord, _offline: true };
-    }
-
-    try {
-        const res = await api.put(`${DEALERS}/${payload.id}`, body);
-        return { data: res.data.data, _offline: false };
-    } catch (err: any) {
-        if (!err.response) {
-            const res = await offlineSyncService.enqueueMutation({
-                method: "put",
-                url: `${DEALERS}/${payload.id}`,
-                data: body,
-            });
-            return { data: res.data.data as DealerRecord, _offline: true };
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to update dealer");
-    }
-});
+// Same export names as before, so the page and other files do not change
+export const fetchDealerNextId = dealerThunks.fetchNextId;
+export const fetchAllDealers = dealerThunks.fetchAll;
+export const fetchDealerById = dealerThunks.fetchById;
+export const createDealer = dealerThunks.create;
+export const updateDealer = dealerThunks.update;
 
 /* ---------------- Slice ---------------- */
 
@@ -321,10 +120,7 @@ export const dealerSlice = createSlice({
                     : row
             );
             if (state.currentRecord && String(state.currentRecord.id) === String(tempId)) {
-                state.currentRecord = { ...state.currentRecord, id: realId };
-            }
-            if (String(state.nextId) === String(tempId)) {
-                state.nextId = String(Number(realId) + 1);
+                state.currentRecord = { ...state.currentRecord, id: realId, _offlinePending: false };
             }
         },
         setReconciledCityId(
@@ -351,24 +147,24 @@ export const dealerSlice = createSlice({
                 state.currentRecord = { ...state.currentRecord, provinceId: realId };
             }
         },
-        setOfflineQueueVersion(state, action: PayloadAction<number>) {
-            state.offlineQueueVersion = action.payload;
+        setNextId(state, action: PayloadAction<string>) {
+            state.nextId = action.payload;
+            state.isIdLoading = false;
         },
     },
     extraReducers: (builder) => {
         builder
             .addCase(fetchDealerNextId.pending, (s) => { s.isIdLoading = true; })
+            // Only stores the id. It must NOT switch to "new" mode here, because this thunk
+            // also runs in the background when the network goes on/off (see Providers) and
+            // would wipe the record the user is currently viewing or editing.
+            // The page switches to new mode itself (startNewEntry).
             .addCase(fetchDealerNextId.fulfilled, (s, a) => {
                 s.isIdLoading = false;
                 s.nextId = a.payload.nextId;
-                s.isNewMode = true;
-                s.isEditing = true;
-                s.currentRecord = null;
             })
             .addCase(fetchDealerNextId.rejected, (s, a) => {
                 s.isIdLoading = false;
-                s.isNewMode = true;
-                s.isEditing = true;
                 s.apiError = a.payload ?? "Unable to fetch the next dealer ID.";
             })
 
@@ -378,7 +174,18 @@ export const dealerSlice = createSlice({
             })
             .addCase(fetchAllDealers.fulfilled, (s, a) => {
                 s.listStatus = "succeeded";
-                s.list = a.payload.data;
+                const incoming = a.payload.data || [];
+                const pendingOffline = s.list.filter(
+                    (item) => item._offlinePending || (item.id && String(item.id).startsWith("temp-"))
+                );
+                const mergedMap = new Map<string, DealerRecord>();
+                pendingOffline.forEach((item) => mergedMap.set(String(item.id), item));
+                incoming.forEach((item) => {
+                    if (!mergedMap.has(String(item.id))) {
+                        mergedMap.set(String(item.id), item);
+                    }
+                });
+                s.list = Array.from(mergedMap.values());
                 s.pagination = a.payload.pagination;
             })
             .addCase(fetchAllDealers.rejected, (s, a) => {
@@ -404,7 +211,18 @@ export const dealerSlice = createSlice({
             })
 
             .addCase(createDealer.pending, (s) => { s.isSubmitting = true; s.apiError = null; })
-            .addCase(createDealer.fulfilled, (s) => { s.isSubmitting = false; })
+            .addCase(createDealer.fulfilled, (s, a) => {
+                s.isSubmitting = false;
+                if (a.payload?.data) {
+                    const item = a.payload.data;
+                    const exists = s.list.some(
+                        (r) => String(r.id) === String(item.id) || (item.tempId && String(r.tempId) === String(item.tempId))
+                    );
+                    if (!exists) {
+                        s.list.unshift(item);
+                    }
+                }
+            })
             .addCase(createDealer.rejected, (s, a) => {
                 s.isSubmitting = false;
                 s.apiError = a.payload ?? "Failed to save dealer";
@@ -425,7 +243,7 @@ export const dealerSlice = createSlice({
 
 export const {
     setNewMode, setEditing, setCurrentRecord, resetForm, clearApiError,
-    setReconciledId, setReconciledCityId, setReconciledProvinceId, setOfflineQueueVersion,
+    setReconciledId, setReconciledCityId, setReconciledProvinceId, setNextId,
 } = dealerSlice.actions;
 
 export default dealerSlice.reducer;

@@ -11,9 +11,10 @@ import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
-import { dealerSchema, type DealerFormValues } from "@/lib/validations/master";
+import { dealerSchema, type DealerFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { isTempId } from "@/store/utils/tempId";
+import { generateTempId, isTempId } from "@/utils/tempId";
+import { DEALERS } from "@/utils/apiRoutes";
 import {
     clearApiError,
     createDealer,
@@ -23,6 +24,7 @@ import {
     setCurrentRecord,
     setEditing,
     setNewMode,
+    setNextId,
     updateDealer,
     type DealerRecord,
 } from "@/store/slices/dealerSlice";
@@ -90,7 +92,7 @@ export default function DealerPage() {
     const canUpdate = hasPermission("dealer", "update");
     const canView = hasPermission("dealer", "view");
 
-    const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
+    const { register, handleSubmit, reset, watch, setValue, formState: { errors, isDirty } } =
         useForm<DealerFormValues>({
             resolver: zodResolver(dealerSchema),
             defaultValues: initialValues,
@@ -106,7 +108,7 @@ export default function DealerPage() {
     );
     const citiesStatus = useAppSelector((s) => s.city.listStatus);
 
-    // ⬇️ Bootstrapping flag: jab tak pehla nextId na aa jaye, form blank na dikhe
+    // Until the first nextId arrives, show a loading state instead of a blank form
     const isBootstrapping = isIdLoading && !nextId;
 
     useEffect(() => {
@@ -116,10 +118,40 @@ export default function DealerPage() {
         dispatch(fetchAllCities({ page: 1, limit: 500 }));
     }, [dispatch]);
 
+    // When nextId updates in new mode (e.g. going offline -> temp ID, or coming online -> real ID from server)
     useEffect(() => {
-        if (isNewMode && nextId) reset({ ...initialValues, id: String(nextId) });
-    }, [isNewMode, nextId, reset]);
+        if (isNewMode && nextId) {
+            setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
+        }
+    }, [isNewMode, nextId, setValue]);
 
+    // Instant toggle on network changes without requiring refresh:
+    // Online -> immediately fetch real ID from server
+    // Offline -> immediately set temp ID
+    useEffect(() => {
+        const handleOnline = () => {
+            if (isNewMode) {
+                dispatch(fetchDealerNextId()).unwrap().then((res) => {
+                    setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
+                }).catch(() => {});
+            }
+        };
+        const handleOffline = () => {
+            if (isNewMode) {
+                const temp = generateTempId("dealer");
+                dispatch(setNextId(temp));
+                setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+            }
+        };
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, [isNewMode, dispatch, setValue]);
+
+    // Populate form when a record is selected or looked up
     useEffect(() => {
         if (!isNewMode && currentRecord) {
             reset({
@@ -140,12 +172,44 @@ export default function DealerPage() {
         }
     }, [currentRecord, isNewMode, reset]);
 
+    // Live update form fields when IDs reconcile in the background
+    useEffect(() => {
+        const handleReconciled = (event: Event) => {
+            const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+            if (!detail) return;
+            const { tempId, realId, resourceUrl } = detail;
+
+            // 1. If currently viewing/holding this dealer and its temp ID synced
+            if (resourceUrl === DEALERS && String(watch("id")) === String(tempId)) {
+                setValue("id", String(realId), { shouldDirty: false });
+            }
+            // 2. If dealer form holds a temp provinceId that just synced
+            if (String(watch("provinceId")) === String(tempId)) {
+                setValue("provinceId", String(realId), { shouldDirty: false });
+            }
+            // 3. If dealer form holds a temp cityId that just synced
+            if (String(watch("cityId")) === String(tempId)) {
+                setValue("cityId", String(realId), { shouldDirty: false });
+            }
+        };
+
+        window.addEventListener("offline-id-reconciled", handleReconciled);
+        return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
+    }, [setValue, watch]);
+
+    // Look up a dealer when the user types an ID in the ID field
     useEffect(() => {
         if (String(watchedId) !== String(debouncedId)) return;
-        if (isNewMode && String(debouncedId) === String(nextId)) return;
         if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
-        dispatch(fetchDealerById(String(debouncedId))).unwrap().catch(() => { });
-    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId]);
+
+        const wasViewingRecord = !isNewMode;
+        dispatch(fetchDealerById(String(debouncedId)))
+            .unwrap()
+            .catch(() => {
+                // ID not found: do not leave the previous dealer's data on screen
+                if (wasViewingRecord) reset({ ...initialValues, id: String(debouncedId) });
+            });
+    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId, reset]);
 
     useEffect(() => {
         if (apiError) {
@@ -153,6 +217,15 @@ export default function DealerPage() {
             dispatch(clearApiError());
         }
     }, [apiError, dispatch]);
+
+    // Fresh blank form with the next ID from the server (or the offline suggestion)
+    const startNewEntry = async () => {
+        const next = await dispatch(fetchDealerNextId()).unwrap();
+        dispatch(setCurrentRecord(null));
+        dispatch(setNewMode(true));
+        dispatch(setEditing(true));
+        reset({ ...initialValues, id: next.nextId });
+    };
 
     const onSubmit = handleSubmit(async (data) => {
         if (!isEditing) {
@@ -165,58 +238,55 @@ export default function DealerPage() {
                     createDealer({ ...data, id: String(data.id ?? "") })
                 ).unwrap();
 
-                // ⬇️ NAYA: offline save detect karo
                 if (result._offline) {
-                    toast.success("Saved offline");
+                    // Saved in the offline queue. Show the saved record (with its temp ID)
+                    // so pressing Save again edits it instead of creating a duplicate.
+                    toast.success("Saved offline. It will sync when you are back online.");
+                    dispatch(setCurrentRecord(result.data));
+                    dispatch(setNewMode(false));
+                    dispatch(setEditing(false));
                     dispatch(fetchAllDealers({ page: 1, limit: 10 }));
-                    return;  // ⬅️ form reset MAT karo, wahi temp id rahegi
+                    return;
                 }
 
-                // Online save hua — normal flow
                 toast.success("Saved successfully");
-                const next = await dispatch(fetchDealerNextId()).unwrap();
-                dispatch(setNewMode(true));
-                dispatch(setEditing(true));
-                reset({ ...initialValues, id: next.nextId });
+                await startNewEntry();
                 dispatch(fetchAllDealers({ page: 1, limit: 10 }));
-
             } else {
-                // Update case
                 const result = await dispatch(
                     updateDealer({ ...data, id: String(data.id ?? "") })
                 ).unwrap();
 
-                // ⬇️ NAYA: update bhi offline ho sakta hai
-                if ((result as any)._offline) {
-                    toast.success("Updated offline — internet aane pe sync hoga");
+                if (result._offline) {
+                    toast.success("Updated offline. It will sync when you are back online.");
+                    // The slice clears currentRecord after an update, so put the record back
+                    dispatch(setCurrentRecord(result.data));
+                    dispatch(setEditing(false));
                     dispatch(fetchAllDealers({ page: 1, limit: 10 }));
-                    return;  // ⬅️ form reset MAT karo
+                    return;
                 }
 
-                // Online update hua — normal flow
                 toast.success("Saved successfully");
-                const next = await dispatch(fetchDealerNextId()).unwrap();
-                dispatch(setNewMode(true));
-                dispatch(setEditing(true));
-                reset({ ...initialValues, id: next.nextId });
+                await startNewEntry();
                 dispatch(fetchAllDealers({ page: 1, limit: 10 }));
             }
         } catch {
             /* apiError toast via effect */
         }
     });
+
     const handleNew = async () => {
-        if (nextId) {
-            dispatch(setCurrentRecord(null));
+        // Agar user pehle se new mode me hai aur ID mojood hai, to dobara new ID generate mat karo
+        if (isNewMode && (watchedId || nextId)) {
             dispatch(setEditing(true));
-            dispatch(setNewMode(true));
-            reset({ ...initialValues, id: String(nextId) });
+            reset({ ...initialValues, id: String(watchedId || nextId) });
             return;
         }
-        const next = await dispatch(fetchDealerNextId()).unwrap();
-        dispatch(setNewMode(true));
-        dispatch(setEditing(true));
-        reset({ ...initialValues, id: next.nextId });
+        try {
+            await startNewEntry();
+        } catch {
+            /* apiError toast via effect */
+        }
     };
 
     const handleViewAll = () => {
@@ -253,7 +323,7 @@ export default function DealerPage() {
                     <Button
                         type="button"
                         variant="primary"
-                        onClick={() => window.open("/print/dealers", "_blank")}
+                        onClick={() => window.open("/print/dealers", "_blank", "noopener,noreferrer")}
                         disabled={!canView}
                         className="flex-1 sm:flex-none"
                     >
@@ -269,7 +339,10 @@ export default function DealerPage() {
                         label="Dealer ID"
                         type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
                         {...register("id", { valueAsNumber: false })}
-                        value={String(watchedId || nextId || "")}
+                        value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                        onChange={(e) => {
+                            setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
+                        }}
                         min={1}
                         loading={isBootstrapping}
                         error={errors.id?.message}
@@ -349,14 +422,14 @@ export default function DealerPage() {
                     <LabeledSelect
                         label="Province"
                         value={watchedProvinceId ?? ""}
-                        options={provincesStatus === "loading" ? [] : provinceOptions}
+                        options={provinceOptions}
                         placeholder={
-                            provincesStatus === "loading" ? "Loading provinces..."
-                                : provincesStatus === "failed" ? "Failed to load provinces"
+                            provincesStatus === "loading" && provinceOptions.length === 0 ? "Loading provinces..."
+                                : provincesStatus === "failed" && provinceOptions.length === 0 ? "Failed to load provinces"
                                     : provinceOptions.length === 0 ? "No provinces found"
                                         : "Select Province"
                         }
-                        disabled={!isEditing || provincesStatus === "loading"}
+                        disabled={!isEditing || (provincesStatus === "loading" && provinceOptions.length === 0)}
                         isLoading={provincesStatus === "loading"}
                         onChange={handleProvinceChange}
                         error={errors.provinceId?.message}

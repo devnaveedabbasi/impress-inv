@@ -4,9 +4,9 @@ import { offlineSyncService } from "./offlineSyncService";
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
 const apiBaseUrl =
   typeof window !== "undefined" &&
-  (configuredApiBaseUrl.includes("localhost") || configuredApiBaseUrl.includes("127.0.0.1")) &&
-  window.location.hostname !== "localhost" &&
-  window.location.hostname !== "127.0.0.1"
+    (configuredApiBaseUrl.includes("localhost") || configuredApiBaseUrl.includes("127.0.0.1")) &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
     ? `${window.location.protocol}//${window.location.hostname}:5000`
     : configuredApiBaseUrl;
 
@@ -47,6 +47,8 @@ const formDataInterceptor = (config: any) => {
 axiosInstance.interceptors.request.use(formDataInterceptor);
 syncAxiosInstance.interceptors.request.use(formDataInterceptor);
 
+const MUTATING_METHODS = ["post", "put", "patch", "delete"];
+
 // ==========================================
 // CENTRALIZED OFFLINE QUEUE INTERCEPTOR
 // ==========================================
@@ -58,7 +60,7 @@ axiosInstance.interceptors.request.use(
     }
 
     const method = config.method?.toLowerCase();
-    if (method && ["post", "put", "patch", "delete"].includes(method)) {
+    if (method && MUTATING_METHODS.includes(method)) {
       // Delegate to centralized offlineSyncService
       const simulatedResponse = await offlineSyncService.enqueueMutation(config);
 
@@ -74,14 +76,38 @@ axiosInstance.interceptors.request.use(
 );
 
 // ==========================================
+// IDEMPOTENCY HEADER
+// Registered AFTER the offline interceptor on purpose: axios runs request
+// interceptors in reverse order, so this one runs first and the offline
+// interceptor (and the queue) can reuse the same id.
+// If a request times out but actually reached the server, the same id is
+// sent again when it syncs, so the server can ignore the duplicate.
+// ==========================================
+axiosInstance.interceptors.request.use((config) => {
+  const method = config.method?.toLowerCase();
+  if (method && MUTATING_METHODS.includes(method) && !config.headers?.["X-Client-Mutation-Id"]) {
+    config.headers["X-Client-Mutation-Id"] = offlineSyncService.generateClientMutationId();
+  }
+  return config;
+});
+
+// ==========================================
 // CENTRALIZED RESPONSE & CACHING INTERCEPTOR
 // ==========================================
 axiosInstance.interceptors.response.use(
   async (response) => {
-    // Cache successful GET responses in offlineStore
-    if (response.config.method?.toLowerCase() === "get" && typeof window !== "undefined" && response.config.url) {
+    // Cache successful GET responses in offlineStore (params are passed so pages merge correctly)
+    if (
+      response.config.method?.toLowerCase() === "get" &&
+      typeof window !== "undefined" &&
+      response.config.url
+    ) {
       try {
-        await offlineSyncService.cacheGetResponse(response.config.url, response.data);
+        await offlineSyncService.cacheGetResponse(
+          response.config.url,
+          response.data,
+          response.config.params
+        );
       } catch (e) {
         console.warn("Failed to cache GET response in axios interceptor", e);
       }
@@ -106,29 +132,37 @@ axiosInstance.interceptors.response.use(
           return Promise.reject(error);
         }
 
-        // 1. Direct cache lookup
-        let cachedData = await offlineSyncService.getCachedResponse(url);
+        // 1. Paged list: slice the requested page out of the merged cache
+        let cachedData: any = null;
+        if (config.params?.page !== undefined) {
+          cachedData = await offlineSyncService.getCachedPage(url, config.params);
+          if (cachedData) {
+            cachedData = {
+              success: true,
+              message: "Retrieved from cached list offline",
+              data: cachedData.data,
+              meta: cachedData.meta,
+            };
+          }
+        }
 
-        // 2. Fallbacks if direct cache miss
+        // 2. Direct cache lookup
         if (!cachedData) {
-          // Check if URL is a single item lookup: e.g. /categories/15 or /categories/temp-xxx
+          cachedData = await offlineSyncService.getCachedResponse(url, config.params);
+        }
+
+        // 3. Single item lookup inside the cached list: e.g. /categories/15 or /categories/temp-xxx
+        if (!cachedData) {
           const cleanUrl = url.startsWith("/") ? url : `/${url}`;
           const parts = cleanUrl.split("/").filter(Boolean);
           if (parts.length >= 2) {
             const targetId = parts[parts.length - 1];
             const baseUrl = "/" + parts.slice(0, parts.length - 1).join("/");
 
-            const listCache = await offlineSyncService.getCachedResponse(baseUrl);
-            const list = Array.isArray(listCache?.data)
-              ? listCache.data
-              : Array.isArray(listCache)
-                ? listCache
-                : [];
-
+            const list = await offlineSyncService.getCachedRows(baseUrl);
             const foundItem = list.find(
               (item: any) =>
-                String(item.id) === String(targetId) ||
-                String(item.tempId) === String(targetId)
+                String(item.id) === String(targetId) || String(item.tempId) === String(targetId)
             );
 
             if (foundItem) {

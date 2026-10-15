@@ -1,7 +1,7 @@
 "use client";
 
 import { PrintableProfileList } from "@/components/print/PrintableProfileList";
-import { DEALERS } from "@/utlis/apiRoutes";
+import { DEALERS } from "@/utils/apiRoutes";
 
 export default function DealerPrintPage() {
     return (

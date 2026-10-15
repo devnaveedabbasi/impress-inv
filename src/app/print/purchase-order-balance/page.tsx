@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { VENDORS, PURCHASE_ORDERS } from "@/utlis/apiRoutes";
+import { VENDORS, PURCHASE_ORDERS } from "@/utils/apiRoutes";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useSearchParams } from "next/navigation";

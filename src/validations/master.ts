@@ -132,8 +132,7 @@ export const dealerSchema = z.object({
   NICNo: z
     .string()
     .trim()
-    .min(13, { message: "NIC No must be at least 13 digits" })
-    .max(13, { message: "NIC No must be at most 13 digits" }),
+    .regex(/^\d{5}-\d{7}-\d{1}$|^\d{13}$/, { message: "Enter a valid NIC (e.g. 12345-1234567-1 or 13 digits)" }),
   dealarType: z.enum(["single", "dealar"], { message: "Select a dealer type" }),
   opeaningBalance: numericRange("Opening Balance", -100_000_000, 1_000_000_000),
 });

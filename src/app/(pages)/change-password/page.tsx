@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import api from "@/lib/axios";
-import { CHANGE_PASSWORD } from "@/utlis/apiRoutes";
+import { CHANGE_PASSWORD } from "@/utils/apiRoutes";
 import toast from "react-hot-toast";
 import { Icon } from "@iconify/react";
 
@@ -18,7 +18,7 @@ export default function ChangePasswordPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        
+
         if (newPassword !== confirmPassword) {
             toast.error("New passwords do not match");
             return;
@@ -65,8 +65,8 @@ export default function ChangePasswordPage() {
                                 className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white text-black pr-8"
                                 placeholder="••••••••"
                             />
-                            <button 
-                                type="button" 
+                            <button
+                                type="button"
                                 onClick={() => setShowOld(!showOld)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-zinc-100 rounded"
                             >
@@ -74,7 +74,7 @@ export default function ChangePasswordPage() {
                             </button>
                         </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                         <label className="text-[13px] font-medium w-36">New Password</label>
                         <div className="relative flex-1">
@@ -85,8 +85,8 @@ export default function ChangePasswordPage() {
                                 className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white text-black pr-8"
                                 placeholder="••••••••"
                             />
-                            <button 
-                                type="button" 
+                            <button
+                                type="button"
                                 onClick={() => setShowNew(!showNew)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-zinc-100 rounded"
                             >
@@ -105,8 +105,8 @@ export default function ChangePasswordPage() {
                                 className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white text-black pr-8"
                                 placeholder="••••••••"
                             />
-                            <button 
-                                type="button" 
+                            <button
+                                type="button"
                                 onClick={() => setShowConfirm(!showConfirm)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-zinc-100 rounded"
                             >

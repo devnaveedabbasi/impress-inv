@@ -1,5 +1,5 @@
 import { ButtonHTMLAttributes, forwardRef, ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 type ButtonVariant = "primary" | "outline" | "ghost" | "danger" | "secondary";
 type ButtonSize = "sm" | "md" | "lg" | "icon";

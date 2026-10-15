@@ -1,10 +1,7 @@
-import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import { isAxiosError } from "axios";
-import api from "@/lib/axios";
-import { offlineSyncService } from "@/lib/offlineSyncService";
-import { STATIONS } from "@/utlis/apiRoutes";
-import { generateTempId, isTempId } from "@/store/utils/tempId";
-import { isOffline } from "@/store/utils/network";
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { STATIONS } from "@/utils/apiRoutes";
+import { createOfflineThunks, type Pagination } from "@/utils/createofflinethunks";
+import type { StationFormValues } from "@/validations/master";
 
 export type StationRecord = {
     id: number | string;
@@ -12,8 +9,6 @@ export type StationRecord = {
     _offlinePending?: boolean;
     tempId?: string;
 };
-
-type Pagination = { page: number; limit: number; total: number; totalPages: number };
 
 type StationState = {
     list: StationRecord[];
@@ -46,215 +41,25 @@ const initialState: StationState = {
 };
 
 /* ---------------- Thunks ---------------- */
-
-export const fetchStationNextId = createAsyncThunk<
-    { nextId: string },
-    void,
-    { rejectValue: string }
->("station/fetchNextId", async (_, { rejectWithValue }) => {
-    if (isOffline()) {
-        return { nextId: generateTempId("station") };
-    }
-    try {
-        const res = await api.get(`${STATIONS}/next-id`, {
-            params: { _t: Date.now() },
-            headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-        });
-        const nextId = res.data?.data?.nextId;
-        if (nextId === undefined || nextId === null) {
-            return rejectWithValue("Station next ID response was invalid.");
-        }
-        return { nextId: String(nextId) };
-    } catch (error: unknown) {
-        if (isAxiosError(error)) {
-            if (error.response) {
-                return rejectWithValue(
-                    error.response.data?.message || "Unable to fetch the next station ID."
-                );
-            }
-
-            if (typeof navigator !== "undefined" && navigator.onLine) {
-                return rejectWithValue(
-                    "Station next ID request failed while online. Check the API server/CORS configuration."
-                );
-            }
-        }
-
-        if (typeof navigator === "undefined" || navigator.onLine === false) {
-            return { nextId: generateTempId("station") };
-        }
-
-        return rejectWithValue("Unable to fetch the next station ID.");
-    }
+const stationThunks = createOfflineThunks<StationRecord, StationFormValues>({
+    name: "station",
+    url: STATIONS,
+    label: "station",
+    tempEntity: "station",
+    buildBody: (p) => ({
+        name: p.name,
+    }),
 });
 
-export const fetchAllStations = createAsyncThunk<
-    { data: StationRecord[]; pagination: Pagination },
-    { page: number; limit: number },
-    { rejectValue: string }
->("station/fetchAll", async ({ page, limit }, { rejectWithValue }) => {
-    const url = STATIONS;
-    if (isOffline()) {
-        const cached = await offlineSyncService.getCachedResponse(url);
-        if (cached) {
-            const rows: StationRecord[] = Array.isArray(cached.data) ? cached.data : [];
-            return {
-                data: rows,
-                pagination: cached.meta ?? {
-                    page, limit, total: rows.length,
-                    totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-                },
-            };
-        }
-        return rejectWithValue("Offline: no cached stations available");
-    }
-    try {
-        const res = await api.get(url, { params: { page, limit } });
-        const rows: StationRecord[] = Array.isArray(res.data.data) ? res.data.data : [];
-        const meta: Pagination = res.data.meta ?? {
-            page, limit, total: rows.length,
-            totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-        };
-        return { data: rows, pagination: meta };
-    } catch (err: any) {
-        if (!err.response) {
-            const cached = await offlineSyncService.getCachedResponse(url);
-            if (cached) {
-                const rows: StationRecord[] = Array.isArray(cached.data) ? cached.data : [];
-                return {
-                    data: rows,
-                    pagination: cached.meta ?? {
-                        page, limit, total: rows.length,
-                        totalPages: Math.max(1, Math.ceil(rows.length / limit)),
-                    },
-                };
-            }
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to load stations");
-    }
-});
-
-export const fetchStationById = createAsyncThunk<
-    StationRecord,
-    string,
-    { rejectValue: string }
->("station/fetchById", async (id, { rejectWithValue }) => {
-    // Temp id → look in offline queue
-    if (isTempId(id)) {
-        const queue = await offlineSyncService.getQueue();
-        const pending = queue.find(
-            (q) =>
-                q.method === "post" &&
-                String(q.tempId) === String(id)
-        );
-        if (pending?.data && typeof pending.data === "object" && "name" in pending.data) {
-            return {
-                id,
-                name: String((pending.data as { name: unknown }).name ?? ""),
-                _offlinePending: true,
-                tempId: id,
-            };
-        }
-        return rejectWithValue("Offline: station not found in queue");
-    }
-
-    // Offline → cache lookup
-    if (isOffline()) {
-        const cached = await offlineSyncService.getCachedResponse(STATIONS);
-        const rows: StationRecord[] = Array.isArray(cached?.data) ? cached.data : [];
-        const found = rows.find((r) => String(r.id) === String(id));
-        if (found) return found;
-        return rejectWithValue("Offline: station not found in cache");
-    }
-
-    try {
-        const res = await api.get(`${STATIONS}/${encodeURIComponent(id)}`);
-        return res.data.data;
-    } catch (err: any) {
-        return rejectWithValue(err.response?.data?.message || "Failed to fetch station");
-    }
-});
-
-export const createStation = createAsyncThunk<
-    { data: StationRecord; _offline: boolean },
-    { name: string; id?: string },
-    { rejectValue: string }
->("station/create", async (payload, { rejectWithValue }) => {
-    // Offline → enqueue via enqueueMutation
-    if (isOffline()) {
-        const tempId =
-            payload.id && isTempId(payload.id)
-                ? payload.id
-                : generateTempId("station");
-
-        const res = await offlineSyncService.enqueueMutation({
-            method: "post",
-            url: STATIONS,
-            data: { name: payload.name, _tempId: tempId },
-        });
-
-        return { data: res.data.data as StationRecord, _offline: true };
-    }
-
-    try {
-        const res = await api.post(STATIONS, { name: payload.name });
-        return { data: res.data.data, _offline: false };
-    } catch (err: any) {
-        // Network failure mid-request → enqueue
-        if (!err.response) {
-            const tempId =
-                payload.id && isTempId(payload.id)
-                    ? payload.id
-                    : generateTempId("station");
-
-            const res = await offlineSyncService.enqueueMutation({
-                method: "post",
-                url: STATIONS,
-                data: { name: payload.name, _tempId: tempId },
-            });
-
-            return { data: res.data.data as StationRecord, _offline: true };
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to save station");
-    }
-});
-
-export const updateStation = createAsyncThunk<
-    StationRecord,
-    { id: string; name: string },
-    { rejectValue: string }
->("station/update", async (payload, { rejectWithValue }) => {
-    // Temp id OR offline → enqueue PUT
-    if (isTempId(payload.id) || isOffline()) {
-        const res = await offlineSyncService.enqueueMutation({
-            method: "put",
-            url: `${STATIONS}/${payload.id}`,
-            data: { name: payload.name },
-        });
-
-        return res.data.data as StationRecord;
-    }
-
-    try {
-        const res = await api.put(`${STATIONS}/${payload.id}`, { name: payload.name });
-        return res.data.data;
-    } catch (err: any) {
-        // Network failure mid-request → enqueue
-        if (!err.response) {
-            const res = await offlineSyncService.enqueueMutation({
-                method: "put",
-                url: `${STATIONS}/${payload.id}`,
-                data: { name: payload.name },
-            });
-            return res.data.data as StationRecord;
-        }
-        return rejectWithValue(err.response?.data?.message || "Failed to update station");
-    }
-});
+export const fetchStationNextId = stationThunks.fetchNextId;
+export const fetchAllStations = stationThunks.fetchAll;
+export const fetchStationById = stationThunks.fetchById;
+export const createStation = stationThunks.create;
+export const updateStation = stationThunks.update;
 
 /* ---------------- Slice ---------------- */
 
-const stationSlice = createSlice({
+export const stationSlice = createSlice({
     name: "station",
     initialState,
     reducers: {
@@ -289,11 +94,15 @@ const stationSlice = createSlice({
             );
 
             if (state.currentRecord && String(state.currentRecord.id) === String(tempId)) {
-                state.currentRecord = { ...state.currentRecord, id: realId };
+                state.currentRecord = { ...state.currentRecord, id: realId, _offlinePending: false };
             }
             if (String(state.nextId) === String(tempId)) {
                 state.nextId = String(Number(realId) + 1);
             }
+        },
+        setNextId(state, action: PayloadAction<string>) {
+            state.nextId = action.payload;
+            state.isIdLoading = false;
         },
     },
     extraReducers: (builder) => {
@@ -305,14 +114,9 @@ const stationSlice = createSlice({
             .addCase(fetchStationNextId.fulfilled, (s, a) => {
                 s.isIdLoading = false;
                 s.nextId = a.payload.nextId;
-                s.isNewMode = true;
-                s.isEditing = true;
-                s.currentRecord = null;
             })
             .addCase(fetchStationNextId.rejected, (s, a) => {
                 s.isIdLoading = false;
-                s.isNewMode = true;
-                s.isEditing = true;
                 s.apiError = a.payload ?? "Unable to fetch the next station ID.";
             })
 
@@ -323,7 +127,18 @@ const stationSlice = createSlice({
             })
             .addCase(fetchAllStations.fulfilled, (s, a) => {
                 s.listStatus = "succeeded";
-                s.list = a.payload.data;
+                const incoming = a.payload.data || [];
+                const pendingOffline = s.list.filter(
+                    (item) => item._offlinePending || (item.id && String(item.id).startsWith("temp-"))
+                );
+                const mergedMap = new Map<string, StationRecord>();
+                pendingOffline.forEach((item) => mergedMap.set(String(item.id), item));
+                incoming.forEach((item) => {
+                    if (!mergedMap.has(String(item.id))) {
+                        mergedMap.set(String(item.id), item);
+                    }
+                });
+                s.list = Array.from(mergedMap.values());
                 s.pagination = a.payload.pagination;
             })
             .addCase(fetchAllStations.rejected, (s, a) => {
@@ -356,8 +171,17 @@ const stationSlice = createSlice({
                 s.isSubmitting = true;
                 s.apiError = null;
             })
-            .addCase(createStation.fulfilled, (s) => {
+            .addCase(createStation.fulfilled, (s, a) => {
                 s.isSubmitting = false;
+                if (a.payload?.data) {
+                    const item = a.payload.data;
+                    const exists = s.list.some(
+                        (r) => String(r.id) === String(item.id) || (item.tempId && String(r.tempId) === String(item.tempId))
+                    );
+                    if (!exists) {
+                        s.list.unshift(item);
+                    }
+                }
             })
             .addCase(createStation.rejected, (s, a) => {
                 s.isSubmitting = false;
@@ -388,6 +212,7 @@ export const {
     resetForm,
     clearApiError,
     setReconciledId,
+    setNextId,
 } = stationSlice.actions;
 
 export default stationSlice.reducer;

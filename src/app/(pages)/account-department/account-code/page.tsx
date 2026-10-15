@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { accountCodeSchema, type AccountCodeFormValues } from "@/lib/validations/master";
+import { accountCodeSchema, type AccountCodeFormValues } from "@/validations/master";
 import { useForm } from "@/hooks/useForm";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
-import { ACCOUNT_CODES } from "@/utlis/apiRoutes";
+import { ACCOUNT_CODES } from "@/utils/apiRoutes";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const initialValues: AccountCodeFormValues = {
     id: "",
@@ -76,8 +76,8 @@ export default function AccountCodePage() {
         validationSchema: accountCodeSchema,
         onSubmit: async (data) => {
             // Filter out completely empty rows
-            const filledItems = data.items.filter(row => 
-                row.code?.trim() || row.name?.trim() || row.address?.trim() || 
+            const filledItems = data.items.filter(row =>
+                row.code?.trim() || row.name?.trim() || row.address?.trim() ||
                 row.contactNo?.trim() || row.saleTaxNo?.trim() || row.openingBalance?.trim()
             );
 
@@ -162,7 +162,7 @@ export default function AccountCodePage() {
         const newItems = [...values.items];
         newItems[index] = { ...newItems[index], [field]: value };
         setValues({ ...values, items: newItems });
-        
+
         // Auto add new row if editing the last row
         if (index === values.items.length - 1 && value.trim() !== "") {
             setValues({
@@ -199,7 +199,7 @@ export default function AccountCodePage() {
                         />
                         {errors.id && <span className="text-red-500 text-xs">{errors.id}</span>}
                     </div>
-                    
+
                     <div className="flex items-center gap-4">
                         <label className="w-24 text-sm text-black">Head Name</label>
                         <input

@@ -9,9 +9,9 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
-import { categorySchema, type CategoryFormValues } from "@/lib/validations/master";
+import { categorySchema, type CategoryFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { isTempId } from "@/store/utils/tempId";
+import { generateTempId, isTempId } from "@/utils/tempId";
 import {
   clearApiError,
   createCategory,
@@ -21,6 +21,7 @@ import {
   setCurrentRecord,
   setEditing,
   setNewMode,
+  setNextId,
   updateCategory,
   type CategoryRecord,
 } from "@/store/slices/categorySlice";
@@ -63,14 +64,58 @@ export default function CategoryPage() {
     useForm<CategoryFormValues>({ resolver: zodResolver(categorySchema), defaultValues: initialValues });
   const watchedId = watch("id");
   const debouncedId = useDebounce(watchedId, 500);
+  const isBootstrapping = isIdLoading && !nextId;
 
   useEffect(() => {
     dispatch(fetchCategoryNextId());
     dispatch(fetchAllCategories({ page: 1, limit: 10 }));
   }, [dispatch]);
+  // New mode mein nextId aane par field update karo (offline -> temp, online -> real)
   useEffect(() => {
-    if (isNewMode && nextId) reset({ id: String(nextId), name: "" });
-  }, [isNewMode, nextId, reset]);
+    if (isNewMode && nextId) {
+      setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
+    }
+  }, [isNewMode, nextId, setValue]);
+
+  // Instant toggle on network changes without requiring refresh:
+  // Online -> immediately fetch real ID from server
+  // Offline -> immediately set temp ID
+  useEffect(() => {
+    const handleOnline = () => {
+      if (isNewMode) {
+        dispatch(fetchCategoryNextId()).unwrap().then((res) => {
+          setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
+        }).catch(() => {});
+      }
+    };
+    const handleOffline = () => {
+      if (isNewMode) {
+        const temp = generateTempId("cat");
+        dispatch(setNextId(temp));
+        setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [isNewMode, dispatch, setValue]);
+
+  // Reconcile background sync
+  useEffect(() => {
+    const handleReconciled = (event: Event) => {
+      const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+      if (!detail) return;
+      const { tempId, realId } = detail;
+      if (String(watch("id")) === String(tempId)) {
+        setValue("id", String(realId), { shouldDirty: false });
+      }
+    };
+    window.addEventListener("offline-id-reconciled", handleReconciled);
+    return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
+  }, [setValue, watch]);
   useEffect(() => {
     if (!isNewMode && currentRecord) reset({ id: String(currentRecord.id), name: currentRecord.name });
   }, [currentRecord, isNewMode, reset]);
@@ -153,10 +198,14 @@ export default function CategoryPage() {
           label="ID"
           type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
           {...register("id", { valueAsNumber: false })}
-          value={isIdLoading ? "" : String(watchedId || nextId || "")}
+          value={isNewMode ? String(watchedId || nextId || "") : undefined}
+          onChange={(e) => {
+            setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
+          }}
           min={1}
+          loading={isBootstrapping}
           error={errors.id?.message}
-          disabled={isIdLoading}
+          disabled={isIdLoading || isBootstrapping}
         />
         <LabeledField
           label="Name"

@@ -1,4 +1,4 @@
-import { Images } from "@/utlis/images";
+import { Images } from "@/utils/images";
 import { ReactNode } from "react";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {

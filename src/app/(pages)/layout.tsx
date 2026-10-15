@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import Image from "next/image";
-import { Images } from "@/utlis/images";
+import { Images } from "@/utils/images";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (

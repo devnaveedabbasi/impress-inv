@@ -7,14 +7,14 @@ import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import useDebounce from "@/hooks/useDebounce";
-import { inventorySchema, type InventoryFormValues } from "@/lib/validations/master";
-import { INVENTORY, CATEGORIES, DEPARTMENTS, STATIONS } from "@/utlis/apiRoutes";
+import { inventorySchema, type InventoryFormValues } from "@/validations/master";
+import { INVENTORY, CATEGORIES, DEPARTMENTS, STATIONS } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ stationId: "", color: "", qty: "" });
 const initialValues: InventoryFormValues = {
@@ -148,75 +148,75 @@ export default function InventoryPage() {
         },
     });
 
-    
+
     const debouncedId = useDebounce(values?.id, 500);
 
     useEffect(() => {
         const fetchDebouncedId = async () => {
-        if (!debouncedId) return;
+            if (!debouncedId) return;
 
-        if (debouncedId === String(nextId)) {
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        setIsIdLoading(true);
-        try {
-            const { data } = await api.get(`${INVENTORY}/${debouncedId}`);
-            if (data.data) {
-                const inv = data.data;
-                const fetchedRows = (inv.color || []).map((c: string, i: number) => ({
-                    stationId: String(inv.stationIds?.[i] || ""),
-                    color: c,
-                    qty: String(inv.qty?.[i] || ""),
-                }));
-
-                // Ensure exactly 4 rows are shown for UI consistency
-                while (fetchedRows.length < 4) fetchedRows.push(defaultRow());
-                if (fetchedRows.length > 4) fetchedRows.length = 4; // Truncate if somehow more than 4
-
-                setValues({
-                    id: String(inv.id),
-                    itemName: inv.itemName,
-                    categoryId: String(inv.categoryId),
-                    departmentId: String(inv.departmentId),
-                    pack: String(inv.pack),
-                    rate: String(inv.rate),
-                    unitPerBike: String(inv.unitPerBike),
-                    colorRows: fetchedRows,
-                });
-                setIsNewMode(false);
-                setIsEditing(false);
-                toast.success("Inventory item found");
-            } else {
-                toast.error("Inventory item not found");
+            if (debouncedId === String(nextId)) {
                 setValues({ ...initialValues, id: nextId });
                 setIsNewMode(true);
+                setIsEditing(true);
+                return;
             }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
-            } else {
-                toast.error("Inventory item not found");
+
+            if (!canView) {
+                toast.error("You do not have permission to view or search for this record.");
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+                setIsEditing(true);
+                return;
             }
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-        } finally {
-            setIsIdLoading(false);
+
+            setIsIdLoading(true);
+            try {
+                const { data } = await api.get(`${INVENTORY}/${debouncedId}`);
+                if (data.data) {
+                    const inv = data.data;
+                    const fetchedRows = (inv.color || []).map((c: string, i: number) => ({
+                        stationId: String(inv.stationIds?.[i] || ""),
+                        color: c,
+                        qty: String(inv.qty?.[i] || ""),
+                    }));
+
+                    // Ensure exactly 4 rows are shown for UI consistency
+                    while (fetchedRows.length < 4) fetchedRows.push(defaultRow());
+                    if (fetchedRows.length > 4) fetchedRows.length = 4; // Truncate if somehow more than 4
+
+                    setValues({
+                        id: String(inv.id),
+                        itemName: inv.itemName,
+                        categoryId: String(inv.categoryId),
+                        departmentId: String(inv.departmentId),
+                        pack: String(inv.pack),
+                        rate: String(inv.rate),
+                        unitPerBike: String(inv.unitPerBike),
+                        colorRows: fetchedRows,
+                    });
+                    setIsNewMode(false);
+                    setIsEditing(false);
+                    toast.success("Inventory item found");
+                } else {
+                    toast.error("Inventory item not found");
+                    setValues({ ...initialValues, id: nextId });
+                    setIsNewMode(true);
+                }
+            } catch (error: any) {
+                if (error.response?.status === 403) {
+                    toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
+                } else {
+                    toast.error("Inventory item not found");
+                }
+                setValues({ ...initialValues, id: nextId });
+                setIsNewMode(true);
+            } finally {
+                setIsIdLoading(false);
+            }
         }
-    }
         fetchDebouncedId();
-    }, [debouncedId]);; 
+    }, [debouncedId]);;
 
     const isRowDisabled = (index: number) => {
         if (!isEditing || isOptionsLoading) return true;
@@ -248,15 +248,15 @@ export default function InventoryPage() {
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-2">
                     <LabeledField
-                    type={isIdLoading ? "text" : "number"}
-                    label="Inventory ID"
-                    value={isIdLoading ? "Loading..." : values.id || ""}
+                        type={isIdLoading ? "text" : "number"}
+                        label="Inventory ID"
+                        value={isIdLoading ? "Loading..." : values.id || ""}
                         onChange={handleInputChange("id")}
                         error={errors.id}
                         wrapperClassName="w-32"
-                    min={1}
-                    max={Number(nextId) || 1}
-                />
+                        min={1}
+                        max={Number(nextId) || 1}
+                    />
                     <LabeledField
                         label="Item Name"
                         value={values.itemName}

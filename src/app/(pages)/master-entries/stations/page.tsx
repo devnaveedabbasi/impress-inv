@@ -10,9 +10,9 @@ import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
-import { stationSchema, type StationFormValues } from "@/lib/validations/master";
+import { stationSchema, type StationFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { isTempId } from "@/store/utils/tempId";
+import { generateTempId, isTempId } from "@/utils/tempId";
 import {
     clearApiError,
     createStation,
@@ -22,6 +22,7 @@ import {
     setCurrentRecord,
     setEditing,
     setNewMode,
+    setNextId,
     updateStation,
     type StationRecord,
 } from "@/store/slices/stationSlice";
@@ -66,6 +67,7 @@ export default function StationPage() {
         useForm<StationFormValues>({ resolver: zodResolver(stationSchema), defaultValues: initialValues });
     const watchedId = watch("id");
     const debouncedId = useDebounce(watchedId, 500);
+    const isBootstrapping = isIdLoading && !nextId;
 
     // Initial load
     useEffect(() => {
@@ -75,10 +77,52 @@ export default function StationPage() {
 
     console.log("StationPage render", { isNewMode, isEditing, watchedId, debouncedId, nextId, currentRecord });
 
-    // New mode mein nextId aane par form reset
+    // New mode mein nextId aane par field update karo (offline -> temp, online -> real)
     useEffect(() => {
-        if (isNewMode && nextId) reset({ id: String(nextId), name: "" });
-    }, [isNewMode, nextId, reset]);
+        if (isNewMode && nextId) {
+            setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
+        }
+    }, [isNewMode, nextId, setValue]);
+
+    // Instant toggle on network changes without requiring refresh:
+    // Online -> immediately fetch real ID from server
+    // Offline -> immediately set temp ID
+    useEffect(() => {
+        const handleOnline = () => {
+            if (isNewMode) {
+                dispatch(fetchStationNextId()).unwrap().then((res) => {
+                    setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
+                }).catch(() => {});
+            }
+        };
+        const handleOffline = () => {
+            if (isNewMode) {
+                const temp = generateTempId("station");
+                dispatch(setNextId(temp));
+                setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+            }
+        };
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, [isNewMode, dispatch, setValue]);
+
+    // Reconcile background sync
+    useEffect(() => {
+        const handleReconciled = (event: Event) => {
+            const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+            if (!detail) return;
+            const { tempId, realId } = detail;
+            if (String(watch("id")) === String(tempId)) {
+                setValue("id", String(realId), { shouldDirty: false });
+            }
+        };
+        window.addEventListener("offline-id-reconciled", handleReconciled);
+        return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
+    }, [setValue, watch]);
 
     // View mode mein selected record aane par form reset
     useEffect(() => {
@@ -118,6 +162,11 @@ export default function StationPage() {
 
     // FIX #3: nextId already ho to API dobara mat maaro (5-7 sec delay khatam)
     const handleNew = async () => {
+        if (isNewMode && (watchedId || nextId)) {
+            dispatch(setEditing(true));
+            reset({ id: String(watchedId || nextId), name: "" });
+            return;
+        }
         if (nextId) {
             dispatch(setCurrentRecord(null));
             dispatch(setNewMode(true));
@@ -174,23 +223,27 @@ export default function StationPage() {
 
             <form onSubmit={onSubmit} className="space-y-4">
                 <div className="relative space-y-4">
-                <LabeledField
-                    label="ID"
-                    type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
-                    {...register("id", { valueAsNumber: false })}
-                    value={isIdLoading ? "" : String(watchedId || nextId || "")}
-                    min={1}
-                    error={errors.id?.message}
-                    disabled={isIdLoading}
-                />
-                <LabeledField
-                    label="Name"
-                    type="text"
-                    {...register("name")}
-                    error={errors.name?.message}
-                    disabled={!isEditing}
-                />
-                {isLookingUp && <LoadingOverlay text="Loading station..." />}
+                    <LabeledField
+                        label="ID"
+                        type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
+                        {...register("id", { valueAsNumber: false })}
+                        value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                        onChange={(e) => {
+                            setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
+                        }}
+                        min={1}
+                        loading={isBootstrapping}
+                        error={errors.id?.message}
+                        disabled={isIdLoading || isBootstrapping}
+                    />
+                    <LabeledField
+                        label="Name"
+                        type="text"
+                        {...register("name")}
+                        error={errors.name?.message}
+                        disabled={!isEditing}
+                    />
+                    {isLookingUp && <LoadingOverlay text="Loading station..." />}
                 </div>
 
                 {/* Action buttons — full-width stack on mobile */}

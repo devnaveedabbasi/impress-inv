@@ -1,5 +1,5 @@
 import { InputHTMLAttributes, forwardRef, useId } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 export interface DesktopFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;

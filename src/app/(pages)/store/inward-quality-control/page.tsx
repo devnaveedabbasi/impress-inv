@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useForm } from "@/hooks/useForm";
-import { inwardSchema, type InwardFormValues } from "@/lib/validations/master";
-import { INWARDS, PURCHASE_ORDERS, VENDORS, INVENTORY } from "@/utlis/apiRoutes";
+import { inwardSchema, type InwardFormValues } from "@/validations/master";
+import { INWARDS, PURCHASE_ORDERS, VENDORS, INVENTORY } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ code: "", itemName: "", poBalQty: "", recQty: "", rejQty: "", okQty: "", packingDetail: "" });
 
@@ -31,7 +31,7 @@ export default function InwardQualityControlPage() {
     const [isNewMode, setIsNewMode] = useState(true);
     const [isEditing, setIsEditing] = useState(true);
     const [purchaseOrders, setPurchaseOrders] = useState<{ label: string; value: string }[]>([]);
-    
+
     // Print Modal State
     const [showPrintModal, setShowPrintModal] = useState(false);
     const [vendors, setVendors] = useState<{ label: string; value: string }[]>([]);
@@ -126,7 +126,7 @@ export default function InwardQualityControlPage() {
                 DCNo: Number(data.DCNo),
                 billNO: data.billNO ? Number(data.billNO) : null,
                 detail: data.detail,
-                
+
                 code: validRows.map(r => Number(r.code) || 0),
                 itemName: validRows.map(r => r.itemName),
                 poBalQty: validRows.map(r => Number(r.poBalQty) || 0),
@@ -227,10 +227,10 @@ export default function InwardQualityControlPage() {
                     okQty: "",
                     packingDetail: "",
                 }));
-                
+
                 while (fetchedRows.length < 10) fetchedRows.push(defaultRow());
                 if (fetchedRows.length > 10) fetchedRows.length = 10;
-                
+
                 setValues(prev => ({
                     ...prev,
                     name: po.vendor?.vendorName || po.vendor?.name || "",
@@ -253,13 +253,13 @@ export default function InwardQualityControlPage() {
                         return defaultRow();
                     }
                     const newRow = { ...row, [field]: value };
-                    
+
                     if (field === "recQty" || field === "rejQty") {
                         const rec = Number(newRow.recQty) || 0;
                         const rej = Number(newRow.rejQty) || 0;
                         const ok = rec - rej;
                         newRow.okQty = String(ok > 0 ? ok : 0);
-                        
+
                         if (rej > 0 && ok <= 0) {
                             newRow.code = "5000"; // Fully rejected
                         } else if (ok > 0) {
@@ -270,7 +270,7 @@ export default function InwardQualityControlPage() {
                             newRow.code = "";
                         }
                     }
-                    
+
                     return newRow;
                 }
                 return row;
@@ -313,7 +313,7 @@ export default function InwardQualityControlPage() {
                             className="border border-zinc-300 px-2 py-1 outline-none w-24 bg-white"
                         />
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                         <label className="text-sm font-medium w-12 text-right">Date</label>
                         <input
@@ -378,7 +378,7 @@ export default function InwardQualityControlPage() {
                             className="border border-zinc-300 px-2 py-1 outline-none w-full bg-white"
                         />
                     </div>
-                    
+
                     <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                         <label className="text-sm font-medium w-16 text-right">Dc No</label>
                         <input

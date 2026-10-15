@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { userSchema } from "@/lib/validations/account";
+import { userSchema } from "@/validations/account";
 import { useForm } from "@/hooks/useForm";
 import { usePermissions } from "@/hooks/usePermissions";
 import toast from "react-hot-toast";
-import { ROLES, USERS, PERMISSIONS } from "@/utlis/apiRoutes";
+import { ROLES, USERS, PERMISSIONS } from "@/utils/apiRoutes";
 import useDebounce from "@/hooks/useDebounce";
 
 import { LabeledField } from "@/components/ui/LabeledField";
@@ -14,7 +14,7 @@ import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Select } from "@/components/ui/Select";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const initialValues = { id: "", name: "", email: "", password: "", role: "", permissionIds: [] as string[] };
 
@@ -179,12 +179,12 @@ export default function AddUserPage() {
     const filteredPermissions = permissionsData ? Object.entries(permissionsData).reduce((acc: any, [key, module]: [string, any]) => {
         const groupName = formatLabel(module.operation);
         const searchLower = debouncedSearchQuery.trim().toLowerCase();
-        
+
         if (groupName.toLowerCase().includes(searchLower)) {
             acc[key] = module;
             return acc;
         }
-        
+
         const matchedPerms = module.permissions.filter((p: any) => formatLabel(p.name).toLowerCase().includes(searchLower));
         if (matchedPerms.length > 0) {
             acc[key] = { ...module, permissions: matchedPerms };
@@ -272,9 +272,9 @@ export default function AddUserPage() {
                         {isSelfUpdate && <span className="text-xs text-red-500 font-medium ml-2">(You cannot modify your own role or permissions)</span>}
                         <div className="flex-1 h-[1px] bg-zinc-500"></div>
                     </div>
-                    <input 
-                        type="text" 
-                        placeholder="Search permissions..." 
+                    <input
+                        type="text"
+                        placeholder="Search permissions..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => {
@@ -303,7 +303,7 @@ export default function AddUserPage() {
                                 {Object.values(filteredPermissions).length > 0 ? Object.values(filteredPermissions).map((module: any) => {
                                     const groupName = formatLabel(module.operation);
                                     const lockedValues = rolesData?.find((r: any) => String(r.id) === values.role)?.permissions?.map((p: any) => String(p.permission.id)) || [];
-                                    
+
                                     const getPerm = (action: string) => module.permissions.find((p: any) => p.name === action);
 
                                     return (
@@ -313,16 +313,16 @@ export default function AddUserPage() {
                                                 const p = getPerm(action);
                                                 const isLast = index === 3;
                                                 const tdClass = `px-4 py-2 text-center ${!isLast ? 'border-r border-zinc-200' : ''}`;
-                                                
+
                                                 if (!p) return <td key={action} className={`${tdClass} text-zinc-400`}>-</td>;
-                                                
+
                                                 const pid = String(p.id);
                                                 const isLocked = lockedValues.includes(pid);
                                                 const isChecked = values.permissionIds.includes(pid) || isLocked;
                                                 return (
                                                     <td key={action} className={tdClass}>
-                                                        <input 
-                                                            type="checkbox" 
+                                                        <input
+                                                            type="checkbox"
                                                             disabled={!isEditing || isLocked || isSelfUpdate}
                                                             checked={isChecked}
                                                             onChange={(e) => {

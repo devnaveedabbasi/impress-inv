@@ -1,6 +1,6 @@
 import { InputHTMLAttributes, forwardRef, useId } from "react";
 import { Icon } from "@iconify/react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -39,9 +39,9 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
           )}
           {...props}
         />
-        <Icon 
-          icon="mdi:check" 
-          className="pointer-events-none absolute h-3.5 w-3.5 scale-0 text-white transition-transform duration-200 peer-checked:scale-100" 
+        <Icon
+          icon="mdi:check"
+          className="pointer-events-none absolute h-3.5 w-3.5 scale-0 text-white transition-transform duration-200 peer-checked:scale-100"
         />
       </div>
       {label && <span>{label}</span>}

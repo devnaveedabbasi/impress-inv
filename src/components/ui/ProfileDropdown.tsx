@@ -6,7 +6,7 @@ import { Icon } from "@iconify/react";
 import { useAppDispatch, useAppSelector } from "@/hooks/redux";
 import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
-import { LOGOUT } from "@/utlis/apiRoutes";
+import { LOGOUT } from "@/utils/apiRoutes";
 import toast from "react-hot-toast";
 import { logoutUser } from "@/store/slices/auth";
 
@@ -36,13 +36,14 @@ export function ProfileDropdown({
   const handleLogout = async () => {
     try {
       await api.post(LOGOUT);
+    } catch (error: any) {
+      console.warn("Server logout notification failed, logging out locally:", error);
+    } finally {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
       dispatch(logoutUser());
       toast.success("Logged out successfully");
       router.push("/auth/login");
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.message || "Logout failed";
-      toast.error(errorMessage);
-      console.error("Logout Error:", errorMessage);
     }
   };
 

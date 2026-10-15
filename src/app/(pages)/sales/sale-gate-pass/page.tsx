@@ -6,14 +6,14 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
 import useDebounce from "@/hooks/useDebounce";
-import { saleGatePassSchema, type SaleGatePassFormValues } from "@/lib/validations/master";
-import { SALE_GATE_PASSES } from "@/utlis/apiRoutes";
+import { saleGatePassSchema, type SaleGatePassFormValues } from "@/validations/master";
+import { SALE_GATE_PASSES } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ code: "", itemName: "", unit: "", stockInHand: "", qty: "" });
 const initialValues: SaleGatePassFormValues = {

@@ -1,6 +1,6 @@
 import React, { ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 export interface SelectOption {
   label: string;

@@ -6,14 +6,14 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
-import { quotationSchema, type QuotationFormValues } from "@/lib/validations/master";
-import { QUOTATIONS, VENDORS, INVENTORY } from "@/utlis/apiRoutes";
+import { quotationSchema, type QuotationFormValues } from "@/validations/master";
+import { QUOTATIONS, VENDORS, INVENTORY } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ itemName: "", oldRate: "", proposedRate: "", approvedRate: "" });
 const initialValues: QuotationFormValues = {

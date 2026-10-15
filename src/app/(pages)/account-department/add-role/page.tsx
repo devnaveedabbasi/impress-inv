@@ -2,18 +2,18 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { roleSchema, type RoleFormValues } from "@/lib/validations/account";
+import { roleSchema, type RoleFormValues } from "@/validations/account";
 import { useForm } from "@/hooks/useForm";
 import { usePermissions } from "@/hooks/usePermissions";
 import toast from "react-hot-toast";
-import { PERMISSIONS, ROLES } from "@/utlis/apiRoutes";
+import { PERMISSIONS, ROLES } from "@/utils/apiRoutes";
 import useDebounce from "@/hooks/useDebounce";
 
 import { LabeledField } from "@/components/ui/LabeledField";
 import { Select } from "@/components/ui/Select";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const initialValues: RoleFormValues = {
     id: "",
@@ -155,12 +155,12 @@ export default function AddRolePage() {
     const filteredPermissions = permissionsData ? Object.entries(permissionsData).reduce((acc: any, [key, module]: [string, any]) => {
         const groupName = formatLabel(module.operation);
         const searchLower = debouncedSearchQuery.trim().toLowerCase();
-        
+
         if (groupName.toLowerCase().includes(searchLower)) {
             acc[key] = module;
             return acc;
         }
-        
+
         const matchedPerms = module.permissions.filter((p: any) => formatLabel(p.name).toLowerCase().includes(searchLower));
         if (matchedPerms.length > 0) {
             acc[key] = { ...module, permissions: matchedPerms };
@@ -222,9 +222,9 @@ export default function AddRolePage() {
                         <span className="text-[14px] text-zinc-900 font-normal whitespace-nowrap">Permissions</span>
                         <div className="flex-1 h-[1px] bg-zinc-500"></div>
                     </div>
-                    <input 
-                        type="text" 
-                        placeholder="Search permissions..." 
+                    <input
+                        type="text"
+                        placeholder="Search permissions..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => {
@@ -261,15 +261,15 @@ export default function AddRolePage() {
                                                 const p = getPerm(action);
                                                 const isLast = index === 3;
                                                 const tdClass = `px-4 py-2 text-center ${!isLast ? 'border-r border-zinc-200' : ''}`;
-                                                
+
                                                 if (!p) return <td key={action} className={`${tdClass} text-zinc-400`}>-</td>;
-                                                
+
                                                 const pid = String(p.id);
                                                 const isChecked = values.permissionIds.includes(pid);
                                                 return (
                                                     <td key={action} className={tdClass}>
-                                                        <input 
-                                                            type="checkbox" 
+                                                        <input
+                                                            type="checkbox"
                                                             disabled={!isEditing}
                                                             checked={isChecked}
                                                             onChange={(e) => {

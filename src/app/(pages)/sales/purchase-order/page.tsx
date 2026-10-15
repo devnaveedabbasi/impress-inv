@@ -5,14 +5,14 @@ import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
 import { Button } from "@/components/ui/Button";
 import { useForm } from "@/hooks/useForm";
-import { purchaseOrderSchema, type PurchaseOrderFormValues } from "@/lib/validations/master";
-import { PURCHASE_ORDERS, VENDORS, QUOTATIONS, INVENTORY } from "@/utlis/apiRoutes";
+import { purchaseOrderSchema, type PurchaseOrderFormValues } from "@/validations/master";
+import { PURCHASE_ORDERS, VENDORS, QUOTATIONS, INVENTORY } from "@/utils/apiRoutes";
 import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 
-type ViewAllRow = { id: number; [key: string]: unknown };
+type ViewAllRow = { id: number;[key: string]: unknown };
 
 const defaultRow = () => ({ code: "", itemName: "", unit: "", quantity: "", rate: "", amount: "" });
 const initialValues: PurchaseOrderFormValues = {

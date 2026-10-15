@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/axios";
-import { USER_DETAILS, UPDATE_PROFILE } from "@/utlis/apiRoutes";
+import { USER_DETAILS, UPDATE_PROFILE } from "@/utils/apiRoutes";
 import toast from "react-hot-toast";
 
 interface UserProfile {
