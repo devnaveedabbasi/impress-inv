@@ -50,7 +50,6 @@ export default function ProvincePage() {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
     useForm<ProvinceFormValues>({ resolver: zodResolver(provinceSchema), defaultValues: initialValues });
   const watchedId = watch("id");
-  const watchedName = watch("name");
   const debouncedId = useDebounce(watchedId, 500);
 
   useEffect(() => {
@@ -80,18 +79,23 @@ export default function ProvincePage() {
       if (isNewMode) await dispatch(createProvince(data)).unwrap();
       else await dispatch(updateProvince({ ...data, id: String(data.id ?? "") })).unwrap();
       toast.success("Saved successfully");
+      const next = await dispatch(fetchProvinceNextId()).unwrap();
       dispatch(setNewMode(true));
       dispatch(setEditing(true));
-      dispatch(fetchProvinceNextId());
+      reset({ id: next.nextId, name: "" });
       dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
     } catch { /* apiError toast via effect */ }
   });
-  const handleNew = () => {
-    if (isNewMode && isTempId(String(nextId ?? "")) && !watchedName) {
+  const handleNew = async () => {
+    if (isNewMode && nextId) {
+      dispatch(setEditing(true));
       reset({ id: String(nextId), name: "" });
       return;
     }
-    dispatch(setNewMode(true)); dispatch(setEditing(true)); dispatch(fetchProvinceNextId());
+    const next = await dispatch(fetchProvinceNextId()).unwrap();
+    dispatch(setNewMode(true));
+    dispatch(setEditing(true));
+    reset({ id: next.nextId, name: "" });
   };
   const handleViewAll = () => {
     setIsViewAllOpen(true);

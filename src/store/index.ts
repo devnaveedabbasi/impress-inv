@@ -2,6 +2,8 @@ import { configureStore } from "@reduxjs/toolkit";
 import { categoryReducer } from "@/store/slices/categorySlice";
 import { provinceReducer } from "@/store/slices/provinceSlice";
 import { cityReducer } from "@/store/slices/citySlice";
+import stationReducer from "@/store/slices/stationSlice";
+import dealerReducer from "@/store/slices/dealerSlice";
 import authReducer from "@/store/slices/auth";
 
 export const store = configureStore({
@@ -10,6 +12,8 @@ export const store = configureStore({
     category: categoryReducer,
     province: provinceReducer,
     city: cityReducer,
+    station: stationReducer,
+    dealer: dealerReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

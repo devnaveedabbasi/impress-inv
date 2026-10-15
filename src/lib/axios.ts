@@ -1,15 +1,24 @@
 import axios from "axios";
 import { offlineSyncService } from "./offlineSyncService";
 
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+const apiBaseUrl =
+  typeof window !== "undefined" &&
+  (configuredApiBaseUrl.includes("localhost") || configuredApiBaseUrl.includes("127.0.0.1")) &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1"
+    ? `${window.location.protocol}//${window.location.hostname}:5000`
+    : configuredApiBaseUrl;
+
 export const syncAxiosInstance = axios.create({
-  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000" || "https://impress-bike-inv.onrender.com") + "/api",
+  baseURL: `${apiBaseUrl}/api`,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
 const axiosInstance = axios.create({
-  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000" || "https://impress-bike-inv.onrender.com") + "/api",
+  baseURL: `${apiBaseUrl}/api`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -59,30 +68,6 @@ axiosInstance.interceptors.request.use(
       } as any;
     }
 
-    if (method === "get") {
-      const url = config.url || "";
-      if (url.endsWith("/next-id")) {
-        const baseUrl = url.replace("/next-id", "");
-        const suggestedId = await offlineSyncService.getSuggestedNextId(baseUrl);
-        const nextIdResponse = {
-          data: {
-            success: true,
-            message: "Suggested next-id offline (estimate)",
-            data: { nextId: suggestedId },
-          },
-          status: 200,
-          statusText: "OK (Offline Next ID)",
-          headers: config.headers,
-          config,
-          request: {},
-        };
-        return {
-          ...config,
-          adapter: () => Promise.resolve(nextIdResponse),
-        } as any;
-      }
-    }
-
     return config;
   },
   (error) => Promise.reject(error)
@@ -115,23 +100,10 @@ axiosInstance.interceptors.response.use(
       try {
         const url = config.url || "";
 
-        // If fetching /next-id (e.g., /categories/next-id)
+        // Let entity thunks handle next-id network failures so they can
+        // generate and render a temporary ID immediately.
         if (url.endsWith("/next-id")) {
-          const baseUrl = url.replace("/next-id", "");
-          const suggestedId = await offlineSyncService.getSuggestedNextId(baseUrl);
-
-          return Promise.resolve({
-            data: {
-              success: true,
-              message: "Suggested next-id offline (estimate)",
-              data: { nextId: suggestedId },
-            },
-            status: 200,
-            statusText: "OK (Offline Next ID)",
-            headers: config.headers,
-            config,
-            request: {},
-          });
+          return Promise.reject(error);
         }
 
         // 1. Direct cache lookup

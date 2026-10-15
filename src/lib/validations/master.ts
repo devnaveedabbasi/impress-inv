@@ -123,7 +123,8 @@ export const dealerSchema = z.object({
   NTNNo: z
     .string()
     .trim()
-    .min(5, { message: "NTN No is required" }),
+    .min(7, { message: "NTN No must be at least 7 digits" })
+    .max(13, { message: "NTN No must be at most 13 digits" }),
   mobileNo: z
     .string()
     .trim()
@@ -131,7 +132,8 @@ export const dealerSchema = z.object({
   NICNo: z
     .string()
     .trim()
-    .regex(/^\d{5}-\d{7}-\d{1}$|^\d{13}$/, { message: "Enter a valid NIC/CNIC (e.g. 12345-1234567-1)" }),
+    .min(13, { message: "NIC No must be at least 13 digits" })
+    .max(13, { message: "NIC No must be at most 13 digits" }),
   dealarType: z.enum(["single", "dealar"], { message: "Select a dealer type" }),
   opeaningBalance: numericRange("Opening Balance", -100_000_000, 1_000_000_000),
 });
@@ -256,7 +258,7 @@ export const purchaseOrderSchema = z.object({
         });
       }
     }),
-    
+
   total: z.string().optional(),
   saleTaxPercent: z.string().optional(),
   totalWithSaleTax: z.string().optional(),

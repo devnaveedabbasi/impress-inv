@@ -6,7 +6,7 @@ import { store } from "@/store";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { OfflineSyncManager } from "@/components/OfflineSyncManager";
 import { offlineSyncService } from "@/lib/offlineSyncService";
-import { CATEGORIES, CITIES, PROVINCES } from "@/utlis/apiRoutes";
+import { CATEGORIES, CITIES, DEALERS, PROVINCES } from "@/utlis/apiRoutes";
 import {
   categorySlice,
   fetchAllCategories,
@@ -22,6 +22,15 @@ import {
   fetchAllCities,
   fetchCityNextId,
 } from "@/store/slices/citySlice";
+import {
+  fetchAllStations,
+  fetchStationNextId,
+} from "@/store/slices/stationSlice";
+import {
+  fetchAllDealers,
+  fetchDealerNextId,
+  dealerSlice,
+} from "@/store/slices/dealerSlice";
 
 function registerReconciliationListener() {
   const onReconciled = (event: Event) => {
@@ -40,6 +49,10 @@ function registerReconciliationListener() {
     if (detail.resourceUrl === CITIES) {
       store.dispatch(citySlice.actions.setReconciledId(detail));
     }
+
+    if (detail.resourceUrl === DEALERS) {
+      store.dispatch(dealerSlice.actions.setReconciledId(detail));
+    }
   };
 
   const onNetwork = () => {
@@ -51,12 +64,18 @@ function registerReconciliationListener() {
       store.dispatch(fetchCategoryNextId());
       store.dispatch(fetchProvinceNextId());
       store.dispatch(fetchCityNextId());
+      store.dispatch(fetchStationNextId());
+      store.dispatch(fetchDealerNextId());
+      store.dispatch(fetchAllStations({ page: 1, limit: 10 }));
+      store.dispatch(fetchAllDealers({ page: 1, limit: 10 }));
     } else {
       // Prime a usable temp ID immediately on the offline transition.
       // The master-entry form effects reset their IDs from these values.
       store.dispatch(fetchCategoryNextId());
       store.dispatch(fetchProvinceNextId());
       store.dispatch(fetchCityNextId());
+      store.dispatch(fetchStationNextId());
+      store.dispatch(fetchDealerNextId());
     }
   };
 
@@ -79,6 +98,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       store.dispatch(categorySlice.actions.setOfflineQueueVersion(version));
       store.dispatch(provinceSlice.actions.setOfflineQueueVersion(version));
       store.dispatch(citySlice.actions.setOfflineQueueVersion(version));
+      store.dispatch(dealerSlice.actions.setOfflineQueueVersion(version));
     });
 
     return () => {

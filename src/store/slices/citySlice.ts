@@ -74,11 +74,16 @@ export const fetchCityNextId = createAsyncThunk<{ nextId: string; isTemp: boolea
 
     try {
       const response = await api.get<{ data: { nextId: string | number } }>(`${CITIES}/next-id`, {
-        params: { _t: Date.now() },
         headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
       });
       return { nextId: String(response.data.data.nextId), isTemp: false };
-    } catch {
+    } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Unable to fetch the next city ID.");
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        return rejectWithValue("City API is unreachable. Check the backend URL, CORS, and server status.");
+      }
       return { nextId: generateTempId("city"), isTemp: true };
     }
   }
@@ -216,6 +221,9 @@ export const createCity = createAsyncThunk<CityRecord, { id?: string | number; n
       const record = response.data?.data ?? { id: tempId, name: payload.name, provinceId: payload.provinceId };
       return toCityRecord(record);
     } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Failed to create city.");
+      }
       const fallback = await offlineSyncService.enqueueMutation({
         method: "post",
         url: CITIES,
@@ -249,6 +257,9 @@ export const updateCity = createAsyncThunk<CityRecord, { id: string | number; na
       const record = response.data?.data ?? { id: targetId, name: payload.name, provinceId: payload.provinceId };
       return toCityRecord(record);
     } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Failed to update city.");
+      }
       const fallback = await offlineSyncService.enqueueMutation({
         method: "put",
         url: `${CITIES}/${encodeURIComponent(targetId)}`,
@@ -367,7 +378,6 @@ export const citySlice = createSlice({
       .addCase(fetchCityNextId.rejected, (state, action) => {
         state.apiStatus = "failed";
         state.isIdLoading = false;
-        state.nextId = generateTempId("city");
         state.isNewMode = true;
         state.isEditing = true;
         state.currentRecord = null;
@@ -457,6 +467,7 @@ export const {
   clearApiError,
   setCurrentRecord,
   setReconciledId,
+  setReconciledProvinceId,
   setPendingOptions,
 } = citySlice.actions;
 

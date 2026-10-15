@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { Button } from "@/components/ui/Button";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import useDebounce from "@/hooks/useDebounce";
@@ -20,7 +21,8 @@ import {
 import { fetchAllProvinces } from "@/store/slices/provinceSlice";
 import {
     selectCityApiError, selectCityCurrentRecord, selectCityIsEditing, selectCityIsIdLoading,
-    selectCityIsNewMode, selectCityIsSubmitting, selectCityList, selectCityListError, selectCityListStatus, selectCityNextId,
+    selectCityIsLookingUp, selectCityIsNewMode, selectCityIsSubmitting,
+    selectCityList, selectCityListError, selectCityListStatus, selectCityNextId,
     selectCityPagination,
 } from "@/store/selectors/citySelectors";
 import { selectProvinceOptionsMerged, selectProvincesStatus } from "@/store/selectors/provinceSelectors";
@@ -35,6 +37,7 @@ export default function CityPage() {
     const isNewMode = useAppSelector(selectCityIsNewMode);
     const isEditing = useAppSelector(selectCityIsEditing);
     const isIdLoading = useAppSelector(selectCityIsIdLoading);
+    const isLookingUp = useAppSelector(selectCityIsLookingUp);
     const isSubmitting = useAppSelector(selectCityIsSubmitting);
     const listStatus = useAppSelector(selectCityListStatus);
     const listError = useAppSelector(selectCityListError);
@@ -51,28 +54,44 @@ export default function CityPage() {
     const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
         useForm<CityFormValues>({ resolver: zodResolver(citySchema), defaultValues: initialValues });
     const watchedId = watch("id");
-    const watchedName = watch("name");
     const watchedProvinceId = watch("provinceId");
     const debouncedId = useDebounce(watchedId, 500);
-
+    const isBootstrapping = isIdLoading && !nextId;
+    // Initial load
     useEffect(() => {
         dispatch(fetchCityNextId());
         dispatch(fetchAllCities({ page: 1, limit: 10 }));
         dispatch(fetchAllProvinces({ page: 1, limit: 10 }));
         dispatch(fetchProvinceOptions());
     }, [dispatch]);
+
+    // New mode mein nextId aane par reset
     useEffect(() => {
         if (isNewMode && nextId) reset({ id: String(nextId), name: "", provinceId: "" });
     }, [isNewMode, nextId, reset]);
+
+    // View mode mein selected record aane par reset
     useEffect(() => {
         if (!isNewMode && currentRecord) reset({
-            id: String(currentRecord.id), name: currentRecord.name, provinceId: String(currentRecord.provinceId ?? ""),
+            id: String(currentRecord.id),
+            name: currentRecord.name,
+            provinceId: String(currentRecord.provinceId ?? ""),
         });
     }, [currentRecord, isNewMode, reset]);
+
+    // FIX #1: debounce settle hone tak wait karo (stale debouncedId se bachao)
+    // FIX #2: new mode mein khud ka set kiya nextId lookup mat karo
     useEffect(() => {
+        if (String(watchedId) !== String(debouncedId)) return;
+        if (isNewMode && String(debouncedId) === String(nextId)) return;
         if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
-        dispatch(fetchCityById(String(debouncedId))).unwrap().catch(() => setValue("name", ""));
-    }, [debouncedId, dispatch, isIdLoading, nextId, setValue]);
+        dispatch(fetchCityById(String(debouncedId))).unwrap().catch(() => {
+            setValue("name", "");
+            setValue("provinceId", "");
+        });
+    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId, setValue]);
+
+    // API error toast
     useEffect(() => {
         if (apiError) { toast.error(apiError); dispatch(clearApiError()); }
     }, [apiError, dispatch]);
@@ -86,25 +105,40 @@ export default function CityPage() {
             if (isNewMode) await dispatch(createCity(data)).unwrap();
             else await dispatch(updateCity({ ...data, id: String(data.id ?? "") })).unwrap();
             toast.success("Saved successfully");
+            const next = await dispatch(fetchCityNextId()).unwrap();
             dispatch(setNewMode(true));
             dispatch(setEditing(true));
-            dispatch(fetchCityNextId());
+            reset({ id: next.nextId, name: "", provinceId: "" });
             dispatch(fetchAllCities({ page: 1, limit: 10 }));
         } catch { /* apiError toast via effect */ }
     });
-    const handleNew = () => {
-        if (isNewMode && isTempId(String(nextId ?? "")) && !watchedName) {
+
+    // FIX #3: nextId already ho to API dobara mat maaro (5-7 sec delay khatam)
+    const handleNew = async () => {
+        if (nextId) {
+            dispatch(setCurrentRecord(null));
+            dispatch(setNewMode(true));
+            dispatch(setEditing(true));
             reset({ id: String(nextId), name: "", provinceId: "" });
             return;
         }
-        dispatch(setNewMode(true)); dispatch(setEditing(true)); dispatch(fetchCityNextId());
+        try {
+            const next = await dispatch(fetchCityNextId()).unwrap();
+            dispatch(setNewMode(true));
+            dispatch(setEditing(true));
+            reset({ id: next.nextId, name: "", provinceId: "" });
+        } catch { /* apiError via effect */ }
     };
+
     const handleViewAll = () => {
         setIsViewAllOpen(true);
         if (list.length === 0) dispatch(fetchAllCities({ page: 1, limit: 10 }));
     };
+
     const columns: ViewAllColumn<CityRecord>[] = [
-        { key: "id", header: "ID" }, { key: "name", header: "Name" }, { key: "provinceId", header: "Province ID" },
+        { key: "id", header: "ID" },
+        { key: "name", header: "Name" },
+        { key: "provinceId", header: "Province ID" },
     ];
 
     return (
@@ -112,7 +146,7 @@ export default function CityPage() {
             {/* Header — stacks on mobile */}
             <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">
-                    Cities
+                    Cities9
                 </h1>
                 <div className="flex w-full gap-2 sm:w-auto">
                     <Button
@@ -137,40 +171,44 @@ export default function CityPage() {
             </div>
 
             <form onSubmit={onSubmit} className="space-y-4">
-                <LabeledField
-                    label="ID"
-                    type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
-                    {...register("id", { valueAsNumber: false })}
-                    value={isIdLoading ? "" : String(watchedId || nextId || "")}
-                    min={1}
-                    error={errors.id?.message}
-                    disabled={isIdLoading}
-                />
-                <LabeledField
-                    label="Name"
-                    type="text"
-                    {...register("name")}
-                    error={errors.name?.message}
-                    disabled={!isEditing}
-                />
-                <LabeledSelect
-                    label="Province"
-                    value={watchedProvinceId ?? ""}
-                    options={provincesStatus === "loading" ? [] : provinceOptions}
-                    placeholder={
-                        provincesStatus === "loading"
-                            ? "Loading provinces..."
-                            : provincesStatus === "failed"
-                                ? "Failed to load provinces"
-                                : "Select Province"
-                    }
-                    disabled={!isEditing || provincesStatus === "loading"}
-                    isLoading={provincesStatus === "loading"}
-                    onChange={(value) =>
-                        setValue("provinceId", value, { shouldValidate: true, shouldDirty: true })
-                    }
-                    error={errors.provinceId?.message}
-                />
+                <div className="relative space-y-4">
+                    <LabeledField
+                        label="ID"
+                        type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
+                        {...register("id", { valueAsNumber: false })}
+                        value={String(watchedId || nextId)}
+                        min={1}
+                        loading={isBootstrapping}
+                        error={errors.id?.message}
+                        disabled={isIdLoading || isBootstrapping}
+                    />
+                    <LabeledField
+                        label="Name"
+                        type="text"
+                        {...register("name")}
+                        error={errors.name?.message}
+                        disabled={!isEditing}
+                    />
+                    <LabeledSelect
+                        label="Province"
+                        value={watchedProvinceId ?? ""}
+                        options={provincesStatus === "loading" ? [] : provinceOptions}
+                        placeholder={
+                            provincesStatus === "loading"
+                                ? "Loading provinces..."
+                                : provincesStatus === "failed"
+                                    ? "Failed to load provinces"
+                                    : "Select Province"
+                        }
+                        disabled={!isEditing || provincesStatus === "loading"}
+                        isLoading={provincesStatus === "loading"}
+                        onChange={(value) =>
+                            setValue("provinceId", value, { shouldValidate: true, shouldDirty: true })
+                        }
+                        error={errors.provinceId?.message}
+                    />
+                    {Boolean(isLookingUp) && <LoadingOverlay text="Loading city..." />}
+                </div>
 
                 {/* Action buttons — full-width stack on mobile */}
                 <div className="flex flex-col gap-2 sm:flex-row">

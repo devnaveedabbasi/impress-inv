@@ -12,6 +12,9 @@ import api from "@/lib/axios";
 import toast from "react-hot-toast";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+import { offlineSyncService } from "@/lib/offlineSyncService";
+import { generateTempId, isTempId } from "@/store/utils/tempId";
+import { isOffline } from "@/store/utils/network";
 
 type ViewAllRow = { id: number; [key: string]: unknown };
 
@@ -41,11 +44,16 @@ export default function VendorPage() {
     const fetchProvinces = async () => {
         setIsProvincesLoading(true);
         try {
-            const { data } = await api.get(PROVINCES);
+            const { data } = isOffline()
+                ? { data: (await offlineSyncService.getCachedResponse(PROVINCES)) ?? {} }
+                : await api.get(PROVINCES);
             if (data.data) {
                 setProvinces(data.data.map((p: any) => ({ label: p.name, value: String(p.id) })));
             }
         } catch (error) {
+            const cached = await offlineSyncService.getCachedResponse(PROVINCES);
+            const rows = Array.isArray(cached?.data) ? cached.data : [];
+            setProvinces(rows.map((p: any) => ({ label: p.name, value: String(p.id) })));
             console.error("Failed to fetch provinces", error);
             toast.error("Failed to load provinces");
         } finally {
@@ -60,11 +68,18 @@ export default function VendorPage() {
         }
         setIsCitiesLoading(true);
         try {
-            const { data } = await api.get(`${CITIES}/province/${provinceId}`);
+            const { data } = isOffline()
+                ? { data: (await offlineSyncService.getCachedResponse(`${CITIES}/province/${provinceId}`)) ?? {} }
+                : await api.get(`${CITIES}/province/${provinceId}`);
             if (data.data) {
                 setCities(data.data.map((c: any) => ({ label: c.name, value: String(c.id) })));
             }
         } catch (error) {
+            const cached = await offlineSyncService.getCachedResponse(CITIES);
+            const rows = Array.isArray(cached?.data) ? cached.data : [];
+            setCities(rows
+                .filter((city: any) => String(city.provinceId) === String(provinceId))
+                .map((city: any) => ({ label: city.name, value: String(city.id) })));
             console.error("Failed to fetch cities", error);
             toast.error("Failed to load cities");
         } finally {
@@ -90,14 +105,37 @@ export default function VendorPage() {
     const fetchNextId = async () => {
         setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${VENDORS}/next-id`);
+            if (isOffline()) {
+                const tempId = generateTempId("vendor");
+                setNextId(tempId);
+                setValues({ ...initialValues, id: tempId });
+                setCities([]);
+                setIsNewMode(true);
+                setIsEditing(true);
+                return;
+            }
+            const { data } = await api.get(`${VENDORS}/next-id`, {
+                params: { _t: Date.now() },
+                headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+            });
             const fetchedNextId = String(data.data.nextId);
             setNextId(fetchedNextId);
             setValues({ ...initialValues, id: fetchedNextId });
             setCities([]);
             setIsNewMode(true);
             setIsEditing(true);
-        } catch (error) {
+        } catch (error: any) {
+            if (!error.response && !isOffline()) {
+                toast.error("Vendor next ID request failed while online. Check the API server/CORS configuration.");
+            } else if (isOffline()) {
+                const tempId = generateTempId("vendor");
+                setNextId(tempId);
+                setValues({ ...initialValues, id: tempId });
+                setIsNewMode(true);
+                setIsEditing(true);
+            } else {
+                toast.error(error.response?.data?.message || "Failed to fetch next vendor ID");
+            }
             console.error("Failed to fetch next vendor ID", error);
         } finally {
             setIsIdLoading(false);
@@ -139,16 +177,37 @@ export default function VendorPage() {
             };
 
             try {
-                if (isNewMode) {
+                if (isNewMode && isOffline()) {
+                    await offlineSyncService.enqueueMutation({
+                        method: "post",
+                        url: VENDORS,
+                        data: { ...payload, _tempId: data.id || generateTempId("vendor") },
+                    });
+                    toast.success("Vendor saved offline and queued for sync");
+                } else if (isNewMode) {
                     const response = await api.post(VENDORS, payload);
                     toast.success(response.data.message || "Vendor created successfully");
                 } else {
+                    if (isTempId(String(data.id)) || isOffline()) {
+                        await offlineSyncService.enqueueMutation({
+                            method: "put",
+                            url: `${VENDORS}/${data.id}`,
+                            data: payload,
+                        });
+                        toast.success("Vendor update queued for sync");
+                        fetchNextId();
+                        return;
+                    }
                     const response = await api.put(`${VENDORS}/${data.id}`, payload);
                     toast.success(response.data.message || "Vendor updated successfully");
                 }
                 fetchNextId();
             } catch (error: any) {
-                toast.error(error.response?.data?.message || "Failed to save vendor");
+                if (!error.response && !isOffline()) {
+                    toast.error("Vendor API is unreachable while online.");
+                } else {
+                    toast.error(error.response?.data?.message || "Failed to save vendor");
+                }
                 throw error;
             }
         },
@@ -184,7 +243,12 @@ export default function VendorPage() {
 
         setIsIdLoading(true);
         try {
-            const { data } = await api.get(`${VENDORS}/${debouncedId}`);
+            const cached = isOffline()
+                ? await offlineSyncService.getCachedResponse(VENDORS)
+                : null;
+            const { data } = cached
+                ? { data: { data: (Array.isArray(cached.data) ? cached.data : []).find((v: any) => String(v.id) === String(debouncedId)) } }
+                : await api.get(`${VENDORS}/${debouncedId}`);
             if (data.data) {
                 const v = data.data;
                 const provinceId = String(v.provinceId);
@@ -274,7 +338,12 @@ export default function VendorPage() {
                         onChange={handleProvinceChange}
                         error={errors.provinceId}
                         disabled={!isEditing || isProvincesLoading}
-                        placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
+                        isLoading={isProvincesLoading}
+                        placeholder={
+                            isProvincesLoading ? "Loading provinces..."
+                                : provinces.length === 0 ? "No provinces found"
+                                    : "Select Province"
+                        }
                     />
                     <LabeledSelect
                         label="City"
@@ -283,7 +352,13 @@ export default function VendorPage() {
                         onChange={handleSelectChange("cityId")}
                         error={errors.cityId}
                         disabled={!isEditing || !values.provinceId || isCitiesLoading}
-                        placeholder={isCitiesLoading ? "Loading cities..." : values.provinceId ? "Select City" : "Select Province first"}
+                        isLoading={isCitiesLoading}
+                        placeholder={
+                            !values.provinceId ? "Select Province first"
+                                : isCitiesLoading ? "Loading cities..."
+                                    : cities.length === 0 ? "No cities found"
+                                        : "Select City"
+                        }
                     />
 
                     <LabeledField
@@ -428,4 +503,3 @@ export default function VendorPage() {
         </section>
     );
 }
-

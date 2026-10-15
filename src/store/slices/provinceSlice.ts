@@ -70,11 +70,18 @@ export const fetchProvinceNextId = createAsyncThunk<{ nextId: string; isTemp: bo
 
     try {
       const response = await api.get<{ data: { nextId: string | number } }>(`${PROVINCES}/next-id`, {
-        params: { _t: Date.now() },
         headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
       });
       return { nextId: String(response.data.data.nextId), isTemp: false };
-    } catch {
+    } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Unable to fetch the next province ID.");
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        return rejectWithValue(
+          `Province API request failed. Check backend/authentication. (${error?.message || "Network error"})`
+        );
+      }
       return { nextId: generateTempId("prov"), isTemp: true };
     }
   }
@@ -291,7 +298,6 @@ export const provinceSlice = createSlice({
       .addCase(fetchProvinceNextId.rejected, (state, action) => {
         state.apiStatus = "failed";
         state.isIdLoading = false;
-        state.nextId = generateTempId("prov");
         state.isNewMode = true;
         state.isEditing = true;
         state.currentRecord = null;

@@ -68,7 +68,6 @@ export const fetchCategoryNextId = createAsyncThunk<{ nextId: string; isTemp: bo
 
     try {
       const response = await api.get<{ data: { nextId: string | number } }>(`${CATEGORIES}/next-id`, {
-        params: { _t: Date.now() },
         headers: {
           "Cache-Control": "no-cache",
           Pragma: "no-cache",
@@ -76,7 +75,13 @@ export const fetchCategoryNextId = createAsyncThunk<{ nextId: string; isTemp: bo
       });
 
       return { nextId: String(response.data.data.nextId), isTemp: false };
-    } catch {
+    } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Unable to fetch the next category ID.");
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        return rejectWithValue("Category API is unreachable. Check the backend URL, CORS, and server status.");
+      }
       return { nextId: generateTempId("cat"), isTemp: true };
     }
   }
@@ -163,6 +168,9 @@ export const createCategory = createAsyncThunk<CategoryRecord, { id?: string | n
       const record = response.data?.data ?? { id: tempId, name: payload.name };
       return toCategoryRecord(record);
     } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Failed to create category.");
+      }
       const fallback = await offlineSyncService.enqueueMutation({
         method: "post",
         url: CATEGORIES,
@@ -194,6 +202,9 @@ export const updateCategory = createAsyncThunk<CategoryRecord, { id: string | nu
       const record = response.data?.data ?? { id: targetId, name: payload.name };
       return toCategoryRecord(record);
     } catch (error: any) {
+      if (error?.response) {
+        return rejectWithValue(error.response.data?.message || "Failed to update category.");
+      }
       const fallback = await offlineSyncService.enqueueMutation({
         method: "put",
         url: `${CATEGORIES}/${encodeURIComponent(targetId)}`,
@@ -282,7 +293,6 @@ export const categorySlice = createSlice({
       .addCase(fetchCategoryNextId.rejected, (state, action) => {
         state.apiStatus = "failed";
         state.isIdLoading = false;
-        state.nextId = generateTempId("cat");
         state.isNewMode = true;
         state.isEditing = true;
         state.currentRecord = null;

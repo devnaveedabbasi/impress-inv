@@ -62,7 +62,6 @@ export default function CategoryPage() {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
     useForm<CategoryFormValues>({ resolver: zodResolver(categorySchema), defaultValues: initialValues });
   const watchedId = watch("id");
-  const watchedName = watch("name");
   const debouncedId = useDebounce(watchedId, 500);
 
   useEffect(() => {
@@ -92,21 +91,24 @@ export default function CategoryPage() {
       if (isNewMode) await dispatch(createCategory(data)).unwrap();
       else await dispatch(updateCategory({ ...data, id: String(data.id ?? "") })).unwrap();
       toast.success("Saved successfully");
+      const next = await dispatch(fetchCategoryNextId()).unwrap();
       dispatch(setNewMode(true));
       dispatch(setEditing(true));
-      dispatch(fetchCategoryNextId());
+      reset({ id: next.nextId, name: "" });
       dispatch(fetchAllCategories({ page: 1, limit: 10 }));
     } catch { /* apiError toast via effect */ }
   });
 
-  const handleNew = () => {
-    if (isNewMode && isTempId(String(nextId ?? "")) && !watchedName) {
+  const handleNew = async () => {
+    if (isNewMode && nextId) {
+      dispatch(setEditing(true));
       reset({ id: String(nextId), name: "" });
       return;
     }
+    const next = await dispatch(fetchCategoryNextId()).unwrap();
     dispatch(setNewMode(true));
     dispatch(setEditing(true));
-    dispatch(fetchCategoryNextId());
+    reset({ id: next.nextId, name: "" });
   };
   const handleViewAll = () => {
     setIsViewAllOpen(true);

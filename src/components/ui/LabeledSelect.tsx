@@ -44,7 +44,7 @@ export const LabeledSelect = forwardRef<HTMLSelectElement, LabeledSelectProps>(f
         )}
         {...props}
       >
-        <option value="" disabled hidden>
+        <option value="" disabled>
           {placeholder}
         </option>
         {options.map((option) => (

@@ -1,20 +1,52 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
-import { useForm } from "@/hooks/useForm";
-import useDebounce from "@/hooks/useDebounce";
-import { dealerSchema, type DealerFormValues } from "@/lib/validations/master";
-import { DEALERS, CITIES, PROVINCES } from "@/utlis/apiRoutes";
-import api from "@/lib/axios";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
-import { usePermissions } from "@/hooks/usePermissions";
-import { ViewAllResource, type ViewAllColumn } from "@/components/ui/ViewAllModal";
-
-type ViewAllRow = { id: number; [key: string]: unknown };
-
+import { Button } from "@/components/ui/Button";
 import { LabeledField } from "@/components/ui/LabeledField";
 import { LabeledSelect } from "@/components/ui/LabeledSelect";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { ViewAllModal, type ViewAllColumn } from "@/components/ui/ViewAllModal";
+import { usePermissions } from "@/hooks/usePermissions";
+import useDebounce from "@/hooks/useDebounce";
+import { dealerSchema, type DealerFormValues } from "@/lib/validations/master";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { isTempId } from "@/store/utils/tempId";
+import {
+    clearApiError,
+    createDealer,
+    fetchAllDealers,
+    fetchDealerById,
+    fetchDealerNextId,
+    setCurrentRecord,
+    setEditing,
+    setNewMode,
+    updateDealer,
+    type DealerRecord,
+} from "@/store/slices/dealerSlice";
+import {
+    selectDealerApiError,
+    selectDealerCurrentRecord,
+    selectDealerIsEditing,
+    selectDealerIsIdLoading,
+    selectDealerIsNewMode,
+    selectDealerIsSubmitting,
+    selectDealerIsLookingUp,
+    selectDealerList,
+    selectDealerListError,
+    selectDealerListStatus,
+    selectDealerNextId,
+    selectDealerPagination,
+} from "@/store/selectors/dealerSelectors";
+import {
+    selectProvinceOptionsMerged,
+    selectProvincesStatus,
+} from "@/store/selectors/provinceSelectors";
+import { selectCityOptionsByProvince } from "@/store/selectors/citySelectors";
+import { fetchAllProvinces } from "@/store/slices/provinceSlice";
+import { fetchAllCities } from "@/store/slices/citySlice";
 
 const initialValues: DealerFormValues = {
     id: "",
@@ -33,363 +65,362 @@ const initialValues: DealerFormValues = {
 };
 
 export default function DealerPage() {
-    const [isNewMode, setIsNewMode] = useState(true);
-    const [isEditing, setIsEditing] = useState(true);
-    const [provinces, setProvinces] = useState<{ label: string; value: string }[]>([]);
-    const [cities, setCities] = useState<{ label: string; value: string }[]>([]);
-
-    const fetchProvinces = async () => {
-        setIsProvincesLoading(true);
-        try {
-            const { data } = await api.get(PROVINCES);
-            if (data.data) {
-                setProvinces(data.data.map((p: any) => ({ label: p.name, value: String(p.id) })));
-            }
-        } catch (error) {
-            console.error("Failed to fetch provinces", error);
-        } finally {
-            setIsProvincesLoading(false);
-        }
-    };
-
-    const fetchCitiesByProvince = async (provinceId: string) => {
-        if (!provinceId) {
-            setCities([]);
-            return;
-        }
-        setIsCitiesLoading(true);
-        try {
-            const { data } = await api.get(`${CITIES}/province/${provinceId}`);
-            if (data.data) {
-                setCities(data.data.map((c: any) => ({ label: c.name, value: String(c.id) })));
-            }
-        } catch (error) {
-            console.error("Failed to fetch cities", error);
-        } finally {
-            setIsCitiesLoading(false);
-        }
-    };
+    const dispatch = useAppDispatch();
     const { hasPermission } = usePermissions();
+
+    const list = useAppSelector(selectDealerList);
+    const nextId = useAppSelector(selectDealerNextId);
+    const isNewMode = useAppSelector(selectDealerIsNewMode);
+    const isEditing = useAppSelector(selectDealerIsEditing);
+    const isIdLoading = useAppSelector(selectDealerIsIdLoading);
+    const isSubmitting = useAppSelector(selectDealerIsSubmitting);
+    const isLookingUp = useAppSelector(selectDealerIsLookingUp);
+    const listStatus = useAppSelector(selectDealerListStatus);
+    const listError = useAppSelector(selectDealerListError);
+    const pagination = useAppSelector(selectDealerPagination);
+    const currentRecord = useAppSelector(selectDealerCurrentRecord);
+    const apiError = useAppSelector(selectDealerApiError);
+
+    const provinceOptions = useAppSelector(selectProvinceOptionsMerged);
+    const provincesStatus = useAppSelector(selectProvincesStatus);
+
+    const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+
     const canCreate = hasPermission("dealer", "create");
     const canUpdate = hasPermission("dealer", "update");
     const canView = hasPermission("dealer", "view");
-    const dealerColumns: ViewAllColumn<ViewAllRow>[] = [
-        { key: "id", header: "Dealer ID" },
-        { key: "dealarShipName", header: "Dealership" },
-        { key: "name", header: "Contact Person" },
-        { key: "contactNo", header: "Contact" },
-    ];
-    const [isIdLoading, setIsIdLoading] = useState(true);
-    const [nextId, setNextId] = useState<string>("");
-    const [isProvincesLoading, setIsProvincesLoading] = useState(true);
-    const [isCitiesLoading, setIsCitiesLoading] = useState(false);
 
+    const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
+        useForm<DealerFormValues>({
+            resolver: zodResolver(dealerSchema),
+            defaultValues: initialValues,
+        });
 
-    const fetchNextId = async () => {
-        setIsIdLoading(true);
-        try {
-            const { data } = await api.get(`${DEALERS}/next-id`);
-            const fetchedNextId = String(data.data.nextId);
-            setNextId(fetchedNextId);
-            setValues({ ...initialValues, id: fetchedNextId });
-            setCities([]);
-            setIsNewMode(true);
-            setIsEditing(true);
-        } catch (error) {
-            console.error("Failed to fetch next dealer ID", error);
-        } finally {
-            setIsIdLoading(false);
-        }
-    };
+    const watchedId = watch("id");
+    const watchedProvinceId = watch("provinceId");
+    const debouncedId = useDebounce(watchedId, 500);
+
+    // Load city options based on selected province (from citySlice cache)
+    const cityOptions = useAppSelector((s) =>
+        selectCityOptionsByProvince(s, String(watchedProvinceId ?? ""))
+    );
+    const citiesStatus = useAppSelector((s) => s.city.listStatus);
+
+    // ⬇️ Bootstrapping flag: jab tak pehla nextId na aa jaye, form blank na dikhe
+    const isBootstrapping = isIdLoading && !nextId;
 
     useEffect(() => {
-        fetchNextId();
-        fetchProvinces();
-    }, []);
+        dispatch(fetchDealerNextId());
+        dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+        dispatch(fetchAllProvinces({ page: 1, limit: 100 }));
+        dispatch(fetchAllCities({ page: 1, limit: 500 }));
+    }, [dispatch]);
 
-    const {
-        values,
-        errors,
-        isLoading: isSubmitting,
-        handleInputChange,
-        handleCNICChange,
-        handleSelectChange,
-        handleSubmit,
-        setValues,
-    } = useForm({
-        initialValues,
-        validationSchema: dealerSchema,
-        onSubmit: async (data) => {
-            const payload = {
-                dealarShipName: data.dealarShipName,
-                contactNo: data.contactNo,
-                address: data.address,
-                saleTaxNo: data.saleTaxNo,
-                NTNNo: data.NTNNo,
-                name: data.name,
-                provinceId: Number(data.provinceId),
-                cityId: Number(data.cityId),
-                mobileNo: data.mobileNo,
-                opeaningBalance: Number(data.opeaningBalance),
-                dealarType: data.dealarType,
-                NICNo: data.NICNo,
-            };
+    useEffect(() => {
+        if (isNewMode && nextId) reset({ ...initialValues, id: String(nextId) });
+    }, [isNewMode, nextId, reset]);
 
-            try {
-                if (isNewMode) {
-                    const response = await api.post(DEALERS, payload);
-                    toast.success(response.data.message || "Dealer created successfully");
-                } else {
-                    const response = await api.put(`${DEALERS}/${data.id}`, payload);
-                    toast.success(response.data.message || "Dealer updated successfully");
+    useEffect(() => {
+        if (!isNewMode && currentRecord) {
+            reset({
+                id: String(currentRecord.id),
+                dealarShipName: currentRecord.dealarShipName ?? "",
+                contactNo: currentRecord.contactNo ?? "",
+                address: currentRecord.address ?? "",
+                saleTaxNo: currentRecord.saleTaxNo ?? "",
+                NTNNo: currentRecord.NTNNo ?? "",
+                name: currentRecord.name ?? "",
+                provinceId: String(currentRecord.provinceId ?? ""),
+                cityId: String(currentRecord.cityId ?? ""),
+                mobileNo: currentRecord.mobileNo ?? "",
+                opeaningBalance: String(currentRecord.opeaningBalance ?? ""),
+                dealarType: currentRecord.dealarType === "dealar" ? "dealar" : "single",
+                NICNo: currentRecord.NICNo ?? "",
+            });
+        }
+    }, [currentRecord, isNewMode, reset]);
+
+    useEffect(() => {
+        if (String(watchedId) !== String(debouncedId)) return;
+        if (isNewMode && String(debouncedId) === String(nextId)) return;
+        if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
+        dispatch(fetchDealerById(String(debouncedId))).unwrap().catch(() => { });
+    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId]);
+
+    useEffect(() => {
+        if (apiError) {
+            toast.error(apiError);
+            dispatch(clearApiError());
+        }
+    }, [apiError, dispatch]);
+
+    const onSubmit = handleSubmit(async (data) => {
+        if (!isEditing) {
+            toast.error("Click Edit first to modify");
+            return;
+        }
+        try {
+            if (isNewMode) {
+                const result = await dispatch(
+                    createDealer({ ...data, id: String(data.id ?? "") })
+                ).unwrap();
+
+                // ⬇️ NAYA: offline save detect karo
+                if (result._offline) {
+                    toast.success("Saved offline");
+                    dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+                    return;  // ⬅️ form reset MAT karo, wahi temp id rahegi
                 }
-                fetchNextId();
-            } catch (error: any) {
-                toast.error(error.response?.data?.message || "Failed to save dealer");
-                throw error;
-            }
-        },
-    });
 
-    const handleProvinceChange = (provinceId: string) => {
-        handleSelectChange("provinceId")(provinceId);
-        setValues((prev) => ({ ...prev, cityId: "" }));
-        fetchCitiesByProvince(provinceId);
+                // Online save hua — normal flow
+                toast.success("Saved successfully");
+                const next = await dispatch(fetchDealerNextId()).unwrap();
+                dispatch(setNewMode(true));
+                dispatch(setEditing(true));
+                reset({ ...initialValues, id: next.nextId });
+                dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+
+            } else {
+                // Update case
+                const result = await dispatch(
+                    updateDealer({ ...data, id: String(data.id ?? "") })
+                ).unwrap();
+
+                // ⬇️ NAYA: update bhi offline ho sakta hai
+                if ((result as any)._offline) {
+                    toast.success("Updated offline — internet aane pe sync hoga");
+                    dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+                    return;  // ⬅️ form reset MAT karo
+                }
+
+                // Online update hua — normal flow
+                toast.success("Saved successfully");
+                const next = await dispatch(fetchDealerNextId()).unwrap();
+                dispatch(setNewMode(true));
+                dispatch(setEditing(true));
+                reset({ ...initialValues, id: next.nextId });
+                dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+            }
+        } catch {
+            /* apiError toast via effect */
+        }
+    });
+    const handleNew = async () => {
+        if (nextId) {
+            dispatch(setCurrentRecord(null));
+            dispatch(setEditing(true));
+            dispatch(setNewMode(true));
+            reset({ ...initialValues, id: String(nextId) });
+            return;
+        }
+        const next = await dispatch(fetchDealerNextId()).unwrap();
+        dispatch(setNewMode(true));
+        dispatch(setEditing(true));
+        reset({ ...initialValues, id: next.nextId });
     };
 
-    
-    const debouncedId = useDebounce(values?.id, 500);
+    const handleViewAll = () => {
+        setIsViewAllOpen(true);
+        if (list.length === 0) dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+    };
 
-    useEffect(() => {
-        const fetchDebouncedId = async () => {
-        if (!debouncedId) return;
+    const handleProvinceChange = (value: string) => {
+        setValue("provinceId", value, { shouldValidate: true, shouldDirty: true });
+        setValue("cityId", "", { shouldValidate: false });
+    };
 
-        if (debouncedId === String(nextId)) {
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        if (!canView) {
-            toast.error("You do not have permission to view or search for this record.");
-            setValues({ ...initialValues, id: nextId });
-            setIsNewMode(true);
-            setIsEditing(true);
-            return;
-        }
-
-        setIsIdLoading(true);
-        try {
-            const { data } = await api.get(`${DEALERS}/${debouncedId}`);
-            if (data.data) {
-                const v = data.data;
-                const provinceId = String(v.provinceId);
-                await fetchCitiesByProvince(provinceId);
-
-                setValues({
-                    id: String(v.id),
-                    dealarShipName: v.dealarShipName,
-                    contactNo: v.contactNo,
-                    address: v.address,
-                    saleTaxNo: v.saleTaxNo,
-                    NTNNo: v.NTNNo,
-                    name: v.name,
-                    provinceId,
-                    cityId: String(v.cityId),
-                    mobileNo: v.mobileNo,
-                    opeaningBalance: String(v.opeaningBalance),
-                    dealarType: v.dealarType || "single",
-                    NICNo: v.NICNo,
-                });
-                setIsNewMode(false);
-                setIsEditing(false);
-                toast.success("Dealer found");
-            } else {
-                toast.error("Dealer not found");
-                setValues({ ...initialValues, id: nextId });
-                setCities([]);
-                setIsNewMode(true);
-                setIsEditing(true);
-            }
-        } catch (error: any) {
-            if (error.response?.status === 403) {
-                toast.error(error.response?.data?.message || "Access denied. You do not have permission.");
-            } else {
-                toast.error("Invalid Dealer ID");
-            }
-            setValues({ ...initialValues, id: nextId });
-            setCities([]);
-            setIsNewMode(true);
-            setIsEditing(true);
-        } finally {
-            setIsIdLoading(false);
-        }
-    }
-        fetchDebouncedId();
-    }, [debouncedId]);;
-
-    const selectedRegion = provinces.find(p => p.value === values.provinceId)?.label || "";
-
-    // Button classes matched with design reference
-    const btnClass = "bg-white border border-zinc-400 px-6 py-1.5 text-[15px] text-black hover:bg-zinc-50 active:bg-zinc-100 min-w-[85px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center";
+    const columns: ViewAllColumn<DealerRecord>[] = [
+        { key: "id", header: "ID" },
+        { key: "dealarShipName", header: "Dealership" },
+        { key: "name", header: "Contact" },
+        { key: "contactNo", header: "Phone" },
+    ];
 
     return (
-        <section className="mx-auto mt-10 w-full max-w-4xl bg-form-bg p-8 shadow-sm">
-            {/* Title text matched with the image */}
-            <h1 className="mb-10 text-center text-4xl text-black tracking-wide">Dealer Profile</h1>
+        <section className="mx-auto mt-6 w-full max-w-[500px] rounded-xl bg-white p-4 shadow-lg sm:mt-10 sm:max-w-4xl sm:p-6">
+            <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+                <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">Dealers</h1>
+                <div className="flex w-full gap-2 sm:w-auto">
+                    <Button type="button" variant="secondary" onClick={handleNew}
+                        disabled={!canCreate || isBootstrapping} className="flex-1 sm:flex-none">
+                        New
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleViewAll}
+                        disabled={!canView} className="flex-1 sm:flex-none">
+                        View All
+                    </Button>
 
-            <form onSubmit={handleSubmit} noValidate>
-                {/* Top Section */}
-                <div className="flex flex-col md:flex-row justify-between items-start gap-10">
-                    <div className="flex-1 w-full space-y-1.5">
-                        {/* Dealer ID field included as per original logic */}
-                        <LabeledField
-                    type={isIdLoading ? "text" : "number"}
-                    label="Dealer ID"
-                    value={isIdLoading ? "Loading..." : values.id || ""}
-                            onChange={handleInputChange("id")}
-                            error={errors.id}
-                            wrapperClassName="max-w-[200px]"
+                    <Button
+                        type="button"
+                        variant="primary"
+                        onClick={() => window.open("/print/dealers", "_blank")}
+                        disabled={!canView}
+                        className="flex-1 sm:flex-none"
+                    >
+                        Print
+                    </Button>
+                </div>
+            </div>
+
+            <form onSubmit={onSubmit} className="relative space-y-4">
+                {/* Row 1: ID + Dealership */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField
+                        label="Dealer ID"
+                        type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
+                        {...register("id", { valueAsNumber: false })}
+                        value={String(watchedId || nextId || "")}
                         min={1}
-                    max={Number(nextId) || 1}
-                />
-                        <LabeledField
-                            label="Dealership Name"
-                            value={values.dealarShipName}
-                            onChange={handleInputChange("dealarShipName")}
-                            error={errors.dealarShipName}
-                            disabled={!isEditing}
-                        />
-                        <LabeledField
-                            label="Contact No"
-                            value={values.contactNo}
-                            onChange={handleInputChange("contactNo")}
-                            error={errors.contactNo}
-                            disabled={!isEditing}
-                        />
-                        <LabeledField
-                            label="Address"
-                            value={values.address}
-                            onChange={handleInputChange("address")}
-                            error={errors.address}
-                            disabled={!isEditing}
-                        />
-                        <LabeledField
-                            label="Sale Tax"
-                            value={values.saleTaxNo}
-                            onChange={handleInputChange("saleTaxNo")}
-                            error={errors.saleTaxNo}
-                            disabled={!isEditing}
-                        />
-                        <LabeledField
-                            label="N.T.N.NO"
-                            value={values.NTNNo}
-                            onChange={handleInputChange("NTNNo")}
-                            error={errors.NTNNo}
-                            disabled={!isEditing}
-                        />
-                    </div>
-
-                    {/* Action Buttons - aligned top right in a 2x2 grid to match image */}
-                    <div className="grid grid-cols-2 gap-2 shrink-0">
-                        <button type="button" onClick={fetchNextId} className={btnClass} disabled={isSubmitting || !canCreate}>New</button>
-                        <ViewAllResource
-                            endpoint={DEALERS}
-                            title="All Dealers"
-                            columns={dealerColumns}
-                            searchKeys={["id", "dealarShipName", "name", "contactNo"]}
-                            canView={canView}
-                            onSelectId={(id) => setValues((prev) => ({ ...prev, id: String(id) }))}
-                        />
-                        <button type="submit" className={btnClass} disabled={!isEditing || isSubmitting}>Save</button>
-
-                        <button type="button" onClick={() => window.open("/print/dealers", "_blank")} className={btnClass}>Print</button>
-                        <button type="button" onClick={() => setIsEditing(true)} className={btnClass} disabled={isEditing || isNewMode}>Edit</button>
-                    </div>
+                        loading={isBootstrapping}
+                        error={errors.id?.message}
+                        disabled={isIdLoading}
+                    />
+                    <LabeledField
+                        label="Dealership Name" type="text"
+                        {...register("dealarShipName")}
+                        error={errors.dealarShipName?.message}
+                        disabled={!isEditing}
+                    />
                 </div>
 
-                {/* Information Divider matched with layout design */}
-                <div className="flex items-center gap-3 mb-6 mt-6">
-                    <span className="text-[14px] text-zinc-900 font-normal">Information</span>
-                    <div className="flex-1 h-[1px] bg-zinc-500"></div>
+                {/* Row 2: Contact + Sale Tax */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField label="Contact No" type="text"
+                        {...register("contactNo")} error={errors.contactNo?.message}
+                        disabled={!isEditing} />
+                    <LabeledField label="Sale Tax" type="text"
+                        {...register("saleTaxNo")} error={errors.saleTaxNo?.message}
+                        disabled={!isEditing} />
                 </div>
 
-                {/* Bottom Section */}
-                <div className="flex flex-col md:flex-row gap-6">
-                    {/* Left Column */}
-                    <div className="flex-1 space-y-1.5">
-                        <LabeledField
-                            label="Name"
-                            value={values.name}
-                            onChange={handleInputChange("name")}
-                            error={errors.name}
-                            disabled={!isEditing}
-                        />
+                {/* Row 3: Address + NTN */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField label="Address" type="text"
+                        {...register("address")} error={errors.address?.message}
+                        disabled={!isEditing} />
+                    <LabeledField label="N.T.N.NO" type="text"
+                        {...register("NTNNo")} error={errors.NTNNo?.message}
+                        disabled={!isEditing} />
+                </div>
 
-                        <LabeledField
-                            label="Mobile"
-                            value={values.mobileNo}
-                            onChange={handleInputChange("mobileNo")}
-                            error={errors.mobileNo}
-                            disabled={!isEditing}
-                        />
-                        <LabeledField
-                            type="number"
-                            label="Opening Balance"
-                            value={values.opeaningBalance}
-                            onChange={handleInputChange("opeaningBalance")}
-                            error={errors.opeaningBalance}
-                            disabled={!isEditing}
-                        />
-                        <LabeledSelect
-                            label="Dealer Type"
-                            options={[
-                                { label: "Single", value: "single" },
-                                { label: "Dealer", value: "dealar" }
-                            ]}
-                            value={values.dealarType}
-                            onChange={(e) => handleSelectChange("dealarType")(e)}
-                            error={errors.dealarType}
-                            disabled={!isEditing}
-                        />
-                    </div>
+                {/* Information divider */}
+                <div className="flex items-center gap-3 pt-2">
+                    <span className="text-sm font-medium text-zinc-700">Information</span>
+                    <div className="flex-1 h-px bg-zinc-300" />
+                </div>
 
-                    {/* Right Column */}
-                    <div className="flex-1 space-y-1.5">
-                        <LabeledField
-                            label="N.I.C#"
-                            placeholder="12345-1234567-1"
-                            value={values.NICNo}
-                            onChange={handleCNICChange("NICNo")}
-                            error={errors.NICNo}
-                            disabled={!isEditing}
-                            maxLength={15}
-                        />
-                        <LabeledSelect
-                            label="Province"
-                            options={provinces}
-                            value={values.provinceId}
-                            onChange={(val) => handleProvinceChange(val as string)}
-                            error={errors.provinceId}
-                            disabled={!isEditing || isProvincesLoading}
-                            placeholder={isProvincesLoading ? "Loading provinces..." : "Select Province"}
-                        />
-                        <LabeledSelect
-                            label="City"
-                            options={cities}
-                            value={values.cityId}
-                            onChange={(e) => handleSelectChange("cityId")(e)}
-                            error={errors.cityId}
-                            disabled={!isEditing || !values.provinceId || isCitiesLoading}
-                            placeholder={isCitiesLoading ? "Loading cities..." : values.provinceId ? "Select City" : "Select Province first"}
-                        />
+                {/* Row 4: Name + Mobile */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField label="Name" type="text"
+                        {...register("name")} error={errors.name?.message}
+                        disabled={!isEditing} />
+                    <LabeledField label="Mobile" type="text"
+                        {...register("mobileNo")} error={errors.mobileNo?.message}
+                        disabled={!isEditing} />
+                </div>
 
+                {/* Row 5: Opening Balance + Dealer Type */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField label="Opening Balance" type="number"
+                        {...register("opeaningBalance")} error={errors.opeaningBalance?.message}
+                        disabled={!isEditing} />
+                    <LabeledSelect
+                        label="Dealer Type"
+                        value={watch("dealarType") ?? "single"}
+                        options={[
+                            { label: "Single", value: "single" },
+                            { label: "Dealer", value: "dealar" },
+                        ]}
+                        onChange={(value) => {
+                            if (value === "single" || value === "dealar") {
+                                setValue("dealarType", value, { shouldValidate: true });
+                            }
+                        }}
+                        error={errors.dealarType?.message}
+                        disabled={!isEditing}
+                    />
+                </div>
 
-                    </div>
+                {/* Row 6: NIC + Province */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledField label="N.I.C#" type="text" placeholder="12345-1234567-1"
+                        {...register("NICNo")} error={errors.NICNo?.message}
+                        disabled={!isEditing} maxLength={15} />
+                    <LabeledSelect
+                        label="Province"
+                        value={watchedProvinceId ?? ""}
+                        options={provincesStatus === "loading" ? [] : provinceOptions}
+                        placeholder={
+                            provincesStatus === "loading" ? "Loading provinces..."
+                                : provincesStatus === "failed" ? "Failed to load provinces"
+                                    : provinceOptions.length === 0 ? "No provinces found"
+                                        : "Select Province"
+                        }
+                        disabled={!isEditing || provincesStatus === "loading"}
+                        isLoading={provincesStatus === "loading"}
+                        onChange={handleProvinceChange}
+                        error={errors.provinceId?.message}
+                    />
+                </div>
+
+                {/* Row 7: City */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LabeledSelect
+                        label="City"
+                        value={watch("cityId") ?? ""}
+                        options={!watchedProvinceId ? [] : cityOptions}
+                        placeholder={
+                            !watchedProvinceId ? "Select Province first"
+                                : citiesStatus === "loading" ? "Loading cities..."
+                                    : cityOptions.length === 0 ? "No cities found"
+                                        : "Select City"
+                        }
+                        disabled={!isEditing || !watchedProvinceId || citiesStatus === "loading"}
+                        isLoading={citiesStatus === "loading"}
+                        onChange={(value) => setValue("cityId", value, { shouldValidate: true })}
+                        error={errors.cityId?.message}
+                    />
+                </div>
+
+                {isLookingUp && <LoadingOverlay text="Loading dealer..." />}
+
+                {/* Buttons */}
+                <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                    <Button type="submit"
+                        disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}
+                        isLoading={isSubmitting} className="w-full sm:w-auto">
+                        Save
+                    </Button>
+                    <Button type="button" variant="secondary"
+                        onClick={() => dispatch(setEditing(true))}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
+                        className="w-full sm:w-auto">
+                        Edit
+                    </Button>
                 </div>
             </form>
+
+            <ViewAllModal
+                isOpen={isViewAllOpen}
+                title="Dealers"
+                rows={list}
+                columns={columns}
+                searchKeys={["id", "dealarShipName", "name", "contactNo"]}
+                isLoading={listStatus === "loading"}
+                error={listError ?? undefined}
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                total={pagination.total}
+                onPageChange={(page) => dispatch(fetchAllDealers({ page, limit: pagination.limit }))}
+                onRetry={() => dispatch(fetchAllDealers({ page: pagination.page, limit: pagination.limit }))}
+                onClose={() => setIsViewAllOpen(false)}
+                onRowSelect={(row) => {
+                    dispatch(setCurrentRecord(row));
+                    dispatch(setNewMode(false));
+                    dispatch(setEditing(false));
+                    setIsViewAllOpen(false);
+                }}
+            />
         </section>
     );
 }
-

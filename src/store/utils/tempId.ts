@@ -19,7 +19,9 @@ const createUuid = (): string => {
     .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 };
 
-export const generateTempId = (entity: "cat" | "prov" | "city") =>
+export type TempIdEntity = "cat" | "prov" | "city" | "station" | "dealer" | "vendor";
+
+export const generateTempId = (entity: TempIdEntity): string =>
   `temp-${entity}-${createUuid()}`;
 
 export const isTempId = (id: unknown): boolean =>
