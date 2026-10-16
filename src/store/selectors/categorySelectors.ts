@@ -21,6 +21,7 @@ export const selectCategoryIsIdLoading = (state: RootState) => state.category.is
 export const selectCategoryApiError = (state: RootState) => state.category.apiError;
 export const selectCategoryApiStatus = (state: RootState) => state.category.listStatus;
 export const selectCategoryIsSubmitting = (state: RootState) => state.category.isSubmitting;
+export const selectCategoryIsLookingUp = (state: RootState) => state.category.isLookingUp;
 export const selectCategoryListStatus = (state: RootState) => state.category.listStatus;
 export const selectCategoryListError = (state: RootState) => state.category.listError;
 export const selectCategoryPagination = (state: RootState) => state.category.pagination;

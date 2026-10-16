@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
@@ -14,6 +14,8 @@ import useDebounce from "@/hooks/useDebounce";
 import { dealerSchema, type DealerFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { generateTempId, isTempId } from "@/utils/tempId";
+import { isOffline } from "@/utils/network";
+import { offlineSyncService } from "@/lib/offlineSyncService";
 import { DEALERS } from "@/utils/apiRoutes";
 import {
     clearApiError,
@@ -33,9 +35,9 @@ import {
     selectDealerCurrentRecord,
     selectDealerIsEditing,
     selectDealerIsIdLoading,
+    selectDealerIsLookingUp,
     selectDealerIsNewMode,
     selectDealerIsSubmitting,
-    selectDealerIsLookingUp,
     selectDealerList,
     selectDealerListError,
     selectDealerListStatus,
@@ -87,71 +89,171 @@ export default function DealerPage() {
     const provincesStatus = useAppSelector(selectProvincesStatus);
 
     const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => !isOffline());
+    const [isTransitioningOnline, setIsTransitioningOnline] = useState(false);
+
+    // Temp ID is preserved until user saves (PUT/POST) with it
+    const activeTempIdRef = useRef<string | null>(null);
 
     const canCreate = hasPermission("dealer", "create");
     const canUpdate = hasPermission("dealer", "update");
     const canView = hasPermission("dealer", "view");
 
-    const { register, handleSubmit, reset, watch, setValue, formState: { errors, isDirty } } =
-        useForm<DealerFormValues>({
-            resolver: zodResolver(dealerSchema),
-            defaultValues: initialValues,
-        });
+    const {
+        register,
+        handleSubmit,
+        reset,
+        watch,
+        setValue,
+        formState: { errors },
+    } = useForm<DealerFormValues>({
+        resolver: zodResolver(dealerSchema),
+        defaultValues: initialValues,
+    });
 
     const watchedId = watch("id");
     const watchedProvinceId = watch("provinceId");
     const debouncedId = useDebounce(watchedId, 500);
 
-    // Load city options based on selected province (from citySlice cache)
     const cityOptions = useAppSelector((s) =>
         selectCityOptionsByProvince(s, String(watchedProvinceId ?? ""))
     );
     const citiesStatus = useAppSelector((s) => s.city.listStatus);
 
-    // Until the first nextId arrives, show a loading state instead of a blank form
-    const isBootstrapping = isIdLoading && !nextId;
+    const isBootstrapping = isNetworkOnline && isIdLoading && !nextId;
+    const isCurrentTemp = isTempId(String(watchedId || nextId || ""));
+    // Input type: "number" when mode is online and not holding a temp ID, otherwise "text"
+    const isNumericMode = isNetworkOnline && !isCurrentTemp;
 
+    // Helper: generate temp ID only once per unsaved entry
+    const getOrCreateTempId = () => {
+        if (!activeTempIdRef.current) {
+            activeTempIdRef.current = generateTempId("dealer");
+        }
+        return activeTempIdRef.current;
+    };
+
+    // 1. Initial Data Load
     useEffect(() => {
-        dispatch(fetchDealerNextId());
+        const offline = isOffline() || !navigator.onLine;
+        setIsNetworkOnline(!offline);
+
+        if (offline) {
+            const temp = getOrCreateTempId();
+            dispatch(setNextId(temp));
+            setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+        } else {
+            dispatch(fetchDealerNextId())
+                .unwrap()
+                .then((res) => {
+                    const id = String(res.nextId);
+                    if (!isTempId(id)) {
+                        activeTempIdRef.current = null;
+                        dispatch(setNextId(id));
+                        setValue("id", id, { shouldValidate: true, shouldDirty: false });
+                    }
+                })
+                .catch(() => {
+                    const temp = getOrCreateTempId();
+                    dispatch(setNextId(temp));
+                    setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+                });
+        }
+
         dispatch(fetchAllDealers({ page: 1, limit: 10 }));
         dispatch(fetchAllProvinces({ page: 1, limit: 100 }));
         dispatch(fetchAllCities({ page: 1, limit: 500 }));
-    }, [dispatch]);
+    }, [dispatch, setValue]);
 
-    // When nextId updates in new mode (e.g. going offline -> temp ID, or coming online -> real ID from server)
+    // 2. Redux nextId watcher for new mode
     useEffect(() => {
-        if (isNewMode && nextId) {
+        if (isNewMode && nextId && !isTempId(nextId) && isNetworkOnline) {
+            activeTempIdRef.current = null;
             setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
         }
-    }, [isNewMode, nextId, setValue]);
+    }, [nextId, isNewMode, isNetworkOnline, setValue]);
 
-    // Instant toggle on network changes without requiring refresh:
-    // Online -> immediately fetch real ID from server
-    // Offline -> immediately set temp ID
+    // 3. Network Events (Live instant switch without page refresh)
     useEffect(() => {
-        const handleOnline = () => {
-            if (isNewMode) {
-                dispatch(fetchDealerNextId()).unwrap().then((res) => {
-                    setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
-                }).catch(() => {});
+        const handleOnline = async () => {
+            setIsNetworkOnline(true);
+            setIsTransitioningOnline(true);
+
+            try {
+                // Process queue & wait for sync
+                await offlineSyncService.processQueue().catch(() => null);
+                await new Promise((resolve) => setTimeout(resolve, 300));
+
+                // Fetch real server next ID
+                const nextRes = await dispatch(fetchDealerNextId()).unwrap();
+                const serverId = String(nextRes.nextId);
+
+                if (serverId && !isTempId(serverId)) {
+                    dispatch(setNextId(serverId));
+                    activeTempIdRef.current = null;
+                    const curId = String(watch("id"));
+                    // Auto-replace temp ID with real server ID on fresh entry
+                    if (isNewMode || isTempId(curId)) {
+                        setValue("id", serverId, { shouldValidate: true, shouldDirty: false });
+                    }
+                }
+
+                void dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+                toast.success("Back online. Server ID loaded.", { id: "network-status" });
+            } catch (err) {
+                console.warn("Online reconnect error:", err);
+            } finally {
+                setIsTransitioningOnline(false);
             }
         };
+
         const handleOffline = () => {
-            if (isNewMode) {
-                const temp = generateTempId("dealer");
+            setIsNetworkOnline(false);
+            const curId = String(watch("id"));
+
+            // Special Case: If user was viewing a saved record (isNewMode === false), KEEP VIEWING IT!
+            // Only switch to temp ID if user was in new mode or already holding a temp ID
+            if (isNewMode || isTempId(curId)) {
+                const temp = getOrCreateTempId();
                 dispatch(setNextId(temp));
                 setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+                toast("Offline mode active: Using temporary ID", { id: "network-status", icon: "📡" });
+            } else {
+                toast("Internet connection lost. Working offline.", { id: "network-status", icon: "📡" });
             }
         };
+
         window.addEventListener("online", handleOnline);
         window.addEventListener("offline", handleOffline);
         return () => {
             window.removeEventListener("online", handleOnline);
             window.removeEventListener("offline", handleOffline);
         };
-    }, [isNewMode, dispatch, setValue]);
+    }, [isNewMode, dispatch, setValue, watch]);
 
-    // Populate form when a record is selected or looked up
+    // 4. Background Sync ID Reconciliation
+    useEffect(() => {
+        const handleReconciled = (event: Event) => {
+            const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
+            if (!detail) return;
+            const { tempId, realId, resourceUrl } = detail;
+
+            if (resourceUrl === DEALERS && String(watch("id")) === String(tempId)) {
+                setValue("id", String(realId), { shouldDirty: false });
+            }
+            if (String(watch("provinceId")) === String(tempId)) {
+                setValue("provinceId", String(realId), { shouldDirty: false });
+            }
+            if (String(watch("cityId")) === String(tempId)) {
+                setValue("cityId", String(realId), { shouldDirty: false });
+            }
+        };
+
+        window.addEventListener("offline-id-reconciled", handleReconciled);
+        return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
+    }, [setValue, watch]);
+
+    // 5. Populate form when a record is selected
     useEffect(() => {
         if (!isNewMode && currentRecord) {
             reset({
@@ -172,45 +274,56 @@ export default function DealerPage() {
         }
     }, [currentRecord, isNewMode, reset]);
 
-    // Live update form fields when IDs reconcile in the background
-    useEffect(() => {
-        const handleReconciled = (event: Event) => {
-            const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
-            if (!detail) return;
-            const { tempId, realId, resourceUrl } = detail;
-
-            // 1. If currently viewing/holding this dealer and its temp ID synced
-            if (resourceUrl === DEALERS && String(watch("id")) === String(tempId)) {
-                setValue("id", String(realId), { shouldDirty: false });
-            }
-            // 2. If dealer form holds a temp provinceId that just synced
-            if (String(watch("provinceId")) === String(tempId)) {
-                setValue("provinceId", String(realId), { shouldDirty: false });
-            }
-            // 3. If dealer form holds a temp cityId that just synced
-            if (String(watch("cityId")) === String(tempId)) {
-                setValue("cityId", String(realId), { shouldDirty: false });
-            }
-        };
-
-        window.addEventListener("offline-id-reconciled", handleReconciled);
-        return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
-    }, [setValue, watch]);
-
-    // Look up a dealer when the user types an ID in the ID field
+    // 6. Look up record when user types in the ID field
     useEffect(() => {
         if (String(watchedId) !== String(debouncedId)) return;
-        if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
+        const cleanId = String(debouncedId || "").trim();
 
-        const wasViewingRecord = !isNewMode;
-        dispatch(fetchDealerById(String(debouncedId)))
+        // Never look up empty ID, current record, or placeholder nextId
+        if (!cleanId || cleanId === String(nextId) || isIdLoading) return;
+        if (!isNewMode && currentRecord && String(currentRecord.id) === cleanId) return;
+
+        // A. Temp ID: NEVER call GetByID API! Search offline/local storage only
+        if (isTempId(cleanId)) {
+            if (isNewMode && cleanId === activeTempIdRef.current) return;
+            const found = list.find((d) => String(d.id) === cleanId || String(d.tempId) === cleanId);
+            if (found) {
+                dispatch(setCurrentRecord(found));
+                dispatch(setNewMode(false));
+                dispatch(setEditing(false));
+            } else {
+                const fallback = activeTempIdRef.current || String(nextId || "");
+                setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+            }
+            return;
+        }
+
+        // B. Numeric ID in Offline mode: Search offline list only
+        if (!isNetworkOnline) {
+            const found = list.find((d) => String(d.id) === cleanId);
+            if (found) {
+                dispatch(setCurrentRecord(found));
+                dispatch(setNewMode(false));
+                dispatch(setEditing(false));
+            } else {
+                toast.error(`Dealer ID "${cleanId}" not found in offline records.`);
+                const fallback = activeTempIdRef.current || String(nextId || "");
+                setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+            }
+            return;
+        }
+
+        // C. Numeric ID in Online mode: Call API via slice thunk
+        dispatch(fetchDealerById(cleanId))
             .unwrap()
             .catch(() => {
-                // ID not found: do not leave the previous dealer's data on screen
-                if (wasViewingRecord) reset({ ...initialValues, id: String(debouncedId) });
+                dispatch(clearApiError());
+                // Auto-restore server nextId (no stuck error state)
+                setValue("id", String(nextId || ""), { shouldValidate: true, shouldDirty: false });
             });
-    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId, reset]);
+    }, [debouncedId, watchedId, nextId, isNetworkOnline, isNewMode, currentRecord, isIdLoading, list, dispatch, setValue]);
 
+    // 7. Error toast
     useEffect(() => {
         if (apiError) {
             toast.error(apiError);
@@ -218,15 +331,7 @@ export default function DealerPage() {
         }
     }, [apiError, dispatch]);
 
-    // Fresh blank form with the next ID from the server (or the offline suggestion)
-    const startNewEntry = async () => {
-        const next = await dispatch(fetchDealerNextId()).unwrap();
-        dispatch(setCurrentRecord(null));
-        dispatch(setNewMode(true));
-        dispatch(setEditing(true));
-        reset({ ...initialValues, id: next.nextId });
-    };
-
+    // 8. Submit (Create / Update)
     const onSubmit = handleSubmit(async (data) => {
         if (!isEditing) {
             toast.error("Click Edit first to modify");
@@ -238,54 +343,81 @@ export default function DealerPage() {
                     createDealer({ ...data, id: String(data.id ?? "") })
                 ).unwrap();
 
+                // Clear temp ID reference once saved with it
+                activeTempIdRef.current = null;
+                toast.success(result._offline ? "Saved offline. It will sync when online." : "Saved successfully");
+
                 if (result._offline) {
-                    // Saved in the offline queue. Show the saved record (with its temp ID)
-                    // so pressing Save again edits it instead of creating a duplicate.
-                    toast.success("Saved offline. It will sync when you are back online.");
                     dispatch(setCurrentRecord(result.data));
                     dispatch(setNewMode(false));
                     dispatch(setEditing(false));
-                    dispatch(fetchAllDealers({ page: 1, limit: 10 }));
-                    return;
+                } else {
+                    const next = await dispatch(fetchDealerNextId()).unwrap();
+                    dispatch(setNewMode(true));
+                    dispatch(setEditing(true));
+                    reset({ ...initialValues, id: String(next.nextId) });
                 }
-
-                toast.success("Saved successfully");
-                await startNewEntry();
                 dispatch(fetchAllDealers({ page: 1, limit: 10 }));
             } else {
                 const result = await dispatch(
                     updateDealer({ ...data, id: String(data.id ?? "") })
                 ).unwrap();
 
+                activeTempIdRef.current = null;
+                toast.success(result._offline ? "Updated offline. It will sync when online." : "Saved successfully");
+
                 if (result._offline) {
-                    toast.success("Updated offline. It will sync when you are back online.");
-                    // The slice clears currentRecord after an update, so put the record back
                     dispatch(setCurrentRecord(result.data));
                     dispatch(setEditing(false));
-                    dispatch(fetchAllDealers({ page: 1, limit: 10 }));
-                    return;
+                } else {
+                    const next = await dispatch(fetchDealerNextId()).unwrap();
+                    dispatch(setNewMode(true));
+                    dispatch(setEditing(true));
+                    reset({ ...initialValues, id: String(next.nextId) });
                 }
-
-                toast.success("Saved successfully");
-                await startNewEntry();
                 dispatch(fetchAllDealers({ page: 1, limit: 10 }));
             }
         } catch {
-            /* apiError toast via effect */
+            /* error handled in effect */
         }
     });
 
+    // 9. New Entry
     const handleNew = async () => {
-        // Agar user pehle se new mode me hai aur ID mojood hai, to dobara new ID generate mat karo
-        if (isNewMode && (watchedId || nextId)) {
+        if (!isNetworkOnline) {
+            // Offline: Preserve temp ID if already in new mode
+            if (isNewMode && activeTempIdRef.current) {
+                dispatch(setEditing(true));
+                reset({ ...initialValues, id: activeTempIdRef.current });
+                return;
+            }
+            // Offline from saved record: generate temp ID once
+            const temp = generateTempId("dealer");
+            activeTempIdRef.current = temp;
+            dispatch(setCurrentRecord(null));
+            dispatch(setNewMode(true));
             dispatch(setEditing(true));
-            reset({ ...initialValues, id: String(watchedId || nextId) });
+            dispatch(setNextId(temp));
+            reset({ ...initialValues, id: temp });
             return;
         }
+
+        // Online mode:
+        if (isNewMode && nextId && !isTempId(nextId)) {
+            dispatch(setEditing(true));
+            reset({ ...initialValues, id: String(nextId) });
+            return;
+        }
+
         try {
-            await startNewEntry();
+            const next = await dispatch(fetchDealerNextId()).unwrap();
+            activeTempIdRef.current = null;
+            dispatch(setCurrentRecord(null));
+            dispatch(setNewMode(true));
+            dispatch(setEditing(true));
+            reset({ ...initialValues, id: String(next.nextId) });
         } catch {
-            /* apiError toast via effect */
+            /* error handled in effect */
         }
     };
 
@@ -309,22 +441,40 @@ export default function DealerPage() {
     return (
         <section className="mx-auto mt-6 w-full max-w-[500px] rounded-xl bg-white p-4 shadow-lg sm:mt-10 sm:max-w-4xl sm:p-6">
             <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">Dealers</h1>
+                <div className="flex items-center gap-2">
+                    <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">Dealers</h1>
+                    {!isNetworkOnline && (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Offline
+                        </span>
+                    )}
+                </div>
+
                 <div className="flex w-full gap-2 sm:w-auto">
-                    <Button type="button" variant="secondary" onClick={handleNew}
-                        disabled={!canCreate || isBootstrapping} className="flex-1 sm:flex-none">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={handleNew}
+                        disabled={!canCreate || isBootstrapping || isTransitioningOnline}
+                        className="flex-1 sm:flex-none"
+                    >
                         New
                     </Button>
-                    <Button type="button" variant="outline" onClick={handleViewAll}
-                        disabled={!canView} className="flex-1 sm:flex-none">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleViewAll}
+                        disabled={!canView || isTransitioningOnline}
+                        className="flex-1 sm:flex-none"
+                    >
                         View All
                     </Button>
-
                     <Button
                         type="button"
                         variant="primary"
                         onClick={() => window.open("/print/dealers", "_blank", "noopener,noreferrer")}
-                        disabled={!canView}
+                        disabled={!canView || isTransitioningOnline}
                         className="flex-1 sm:flex-none"
                     >
                         Print
@@ -337,43 +487,69 @@ export default function DealerPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <LabeledField
                         label="Dealer ID"
-                        type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
+                        type={isNumericMode ? "number" : "text"}
+                        min={isNumericMode ? 1 : undefined}
                         {...register("id", { valueAsNumber: false })}
                         value={isNewMode ? String(watchedId || nextId || "") : undefined}
                         onChange={(e) => {
                             setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
                         }}
-                        min={1}
-                        loading={isBootstrapping}
+                        onBlur={() => {
+                            if (!watchedId || !String(watchedId).trim()) {
+                                const fallback = !isNetworkOnline
+                                    ? (activeTempIdRef.current || String(nextId || ""))
+                                    : String(nextId || "");
+                                setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+                            }
+                        }}
+                        loading={isBootstrapping || isLookingUp || isTransitioningOnline}
                         error={errors.id?.message}
-                        disabled={isIdLoading}
+                        disabled={isIdLoading || isLookingUp || isTransitioningOnline}
                     />
+
                     <LabeledField
-                        label="Dealership Name" type="text"
+                        label="Dealership Name"
+                        type="text"
                         {...register("dealarShipName")}
                         error={errors.dealarShipName?.message}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isTransitioningOnline}
                     />
                 </div>
 
                 {/* Row 2: Contact + Sale Tax */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <LabeledField label="Contact No" type="text"
-                        {...register("contactNo")} error={errors.contactNo?.message}
-                        disabled={!isEditing} />
-                    <LabeledField label="Sale Tax" type="text"
-                        {...register("saleTaxNo")} error={errors.saleTaxNo?.message}
-                        disabled={!isEditing} />
+                    <LabeledField
+                        label="Contact No"
+                        type="text"
+                        {...register("contactNo")}
+                        error={errors.contactNo?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
+                    <LabeledField
+                        label="Sale Tax"
+                        type="text"
+                        {...register("saleTaxNo")}
+                        error={errors.saleTaxNo?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
                 </div>
 
                 {/* Row 3: Address + NTN */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <LabeledField label="Address" type="text"
-                        {...register("address")} error={errors.address?.message}
-                        disabled={!isEditing} />
-                    <LabeledField label="N.T.N.NO" type="text"
-                        {...register("NTNNo")} error={errors.NTNNo?.message}
-                        disabled={!isEditing} />
+                    <LabeledField
+                        label="Address"
+                        type="text"
+                        {...register("address")}
+                        error={errors.address?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
+                    <LabeledField
+                        label="N.T.N.NO"
+                        type="text"
+                        {...register("NTNNo")}
+                        error={errors.NTNNo?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
                 </div>
 
                 {/* Information divider */}
@@ -384,19 +560,31 @@ export default function DealerPage() {
 
                 {/* Row 4: Name + Mobile */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <LabeledField label="Name" type="text"
-                        {...register("name")} error={errors.name?.message}
-                        disabled={!isEditing} />
-                    <LabeledField label="Mobile" type="text"
-                        {...register("mobileNo")} error={errors.mobileNo?.message}
-                        disabled={!isEditing} />
+                    <LabeledField
+                        label="Name"
+                        type="text"
+                        {...register("name")}
+                        error={errors.name?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
+                    <LabeledField
+                        label="Mobile"
+                        type="text"
+                        {...register("mobileNo")}
+                        error={errors.mobileNo?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
                 </div>
 
                 {/* Row 5: Opening Balance + Dealer Type */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <LabeledField label="Opening Balance" type="number"
-                        {...register("opeaningBalance")} error={errors.opeaningBalance?.message}
-                        disabled={!isEditing} />
+                    <LabeledField
+                        label="Opening Balance"
+                        type="number"
+                        {...register("opeaningBalance")}
+                        error={errors.opeaningBalance?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                    />
                     <LabeledSelect
                         label="Dealer Type"
                         value={watch("dealarType") ?? "single"}
@@ -410,26 +598,35 @@ export default function DealerPage() {
                             }
                         }}
                         error={errors.dealarType?.message}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isTransitioningOnline}
                     />
                 </div>
 
                 {/* Row 6: NIC + Province */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <LabeledField label="N.I.C#" type="text" placeholder="12345-1234567-1"
-                        {...register("NICNo")} error={errors.NICNo?.message}
-                        disabled={!isEditing} maxLength={15} />
+                    <LabeledField
+                        label="N.I.C#"
+                        type="text"
+                        placeholder="12345-1234567-1"
+                        {...register("NICNo")}
+                        error={errors.NICNo?.message}
+                        disabled={!isEditing || isTransitioningOnline}
+                        maxLength={15}
+                    />
                     <LabeledSelect
                         label="Province"
                         value={watchedProvinceId ?? ""}
                         options={provinceOptions}
                         placeholder={
-                            provincesStatus === "loading" && provinceOptions.length === 0 ? "Loading provinces..."
-                                : provincesStatus === "failed" && provinceOptions.length === 0 ? "Failed to load provinces"
-                                    : provinceOptions.length === 0 ? "No provinces found"
+                            provincesStatus === "loading" && provinceOptions.length === 0
+                                ? "Loading provinces..."
+                                : provincesStatus === "failed" && provinceOptions.length === 0
+                                    ? "Failed to load provinces"
+                                    : provinceOptions.length === 0
+                                        ? "No provinces found"
                                         : "Select Province"
                         }
-                        disabled={!isEditing || (provincesStatus === "loading" && provinceOptions.length === 0)}
+                        disabled={!isEditing || (provincesStatus === "loading" && provinceOptions.length === 0) || isTransitioningOnline}
                         isLoading={provincesStatus === "loading"}
                         onChange={handleProvinceChange}
                         error={errors.provinceId?.message}
@@ -443,31 +640,42 @@ export default function DealerPage() {
                         value={watch("cityId") ?? ""}
                         options={!watchedProvinceId ? [] : cityOptions}
                         placeholder={
-                            !watchedProvinceId ? "Select Province first"
-                                : citiesStatus === "loading" ? "Loading cities..."
-                                    : cityOptions.length === 0 ? "No cities found"
+                            !watchedProvinceId
+                                ? "Select Province first"
+                                : citiesStatus === "loading"
+                                    ? "Loading cities..."
+                                    : cityOptions.length === 0
+                                        ? "No cities found"
                                         : "Select City"
                         }
-                        disabled={!isEditing || !watchedProvinceId || citiesStatus === "loading"}
+                        disabled={!isEditing || !watchedProvinceId || citiesStatus === "loading" || isTransitioningOnline}
                         isLoading={citiesStatus === "loading"}
                         onChange={(value) => setValue("cityId", value, { shouldValidate: true })}
                         error={errors.cityId?.message}
                     />
                 </div>
 
-                {isLookingUp && <LoadingOverlay text="Loading dealer..." />}
+                {(isLookingUp || isTransitioningOnline) && (
+                    <LoadingOverlay text={isTransitioningOnline ? "Syncing and loading server ID..." : "Loading dealer..."} />
+                )}
 
-                {/* Buttons */}
+                {/* Action buttons */}
                 <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                    <Button type="submit"
-                        disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}
-                        isLoading={isSubmitting} className="w-full sm:w-auto">
+                    <Button
+                        type="submit"
+                        disabled={!isEditing || isSubmitting || isTransitioningOnline || (isNewMode ? !canCreate : !canUpdate)}
+                        isLoading={isSubmitting}
+                        className="w-full sm:w-auto"
+                    >
                         Save
                     </Button>
-                    <Button type="button" variant="secondary"
+                    <Button
+                        type="button"
+                        variant="secondary"
                         onClick={() => dispatch(setEditing(true))}
-                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
-                        className="w-full sm:w-auto">
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate || isTransitioningOnline}
+                        className="w-full sm:w-auto"
+                    >
                         Edit
                     </Button>
                 </div>

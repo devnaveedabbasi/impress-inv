@@ -3,11 +3,10 @@ import { offlineSyncService } from "./offlineSyncService";
 
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
 const apiBaseUrl =
-  typeof window !== "undefined" &&
-    (configuredApiBaseUrl.includes("localhost") || configuredApiBaseUrl.includes("127.0.0.1")) &&
-    window.location.hostname !== "localhost" &&
-    window.location.hostname !== "127.0.0.1"
-    ? `${window.location.protocol}//${window.location.hostname}:5000`
+  typeof window !== "undefined"
+    ? window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? "http://localhost:5000"
+      : `${window.location.protocol}//${window.location.hostname}:5000`
     : configuredApiBaseUrl;
 
 export const syncAxiosInstance = axios.create({

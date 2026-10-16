@@ -61,10 +61,6 @@ export function useOfflineSync() {
     await offlineSyncService.clearSuccessHistory();
   }, []);
 
-  const getSuggestedNextId = useCallback(async (resourceUrl: string) => {
-    return await offlineSyncService.getSuggestedNextId(resourceUrl);
-  }, []);
-
   return {
     queue,
     history,
@@ -74,6 +70,5 @@ export function useOfflineSync() {
     retryAll,
     removeItem,
     clearSuccessHistory,
-    getSuggestedNextId,
   };
 }

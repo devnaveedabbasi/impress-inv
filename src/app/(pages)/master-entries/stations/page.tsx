@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
@@ -13,6 +13,9 @@ import useDebounce from "@/hooks/useDebounce";
 import { stationSchema, type StationFormValues } from "@/validations/master";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { generateTempId, isTempId } from "@/utils/tempId";
+import { isOffline } from "@/utils/network";
+import { offlineSyncService } from "@/lib/offlineSyncService";
+import { STATIONS } from "@/utils/apiRoutes";
 import {
     clearApiError,
     createStation,
@@ -46,6 +49,7 @@ const initialValues: StationFormValues = { id: "", name: "" };
 export default function StationPage() {
     const dispatch = useAppDispatch();
     const { hasPermission } = usePermissions();
+
     const list = useAppSelector(selectStationList);
     const nextId = useAppSelector(selectStationNextId);
     const isNewMode = useAppSelector(selectStationIsNewMode);
@@ -58,128 +62,289 @@ export default function StationPage() {
     const pagination = useAppSelector(selectStationPagination);
     const currentRecord = useAppSelector(selectStationCurrentRecord);
     const apiError = useAppSelector(selectStationApiError);
+
     const [isViewAllOpen, setIsViewAllOpen] = useState(false);
+    const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => !isOffline());
+    const [isTransitioningOnline, setIsTransitioningOnline] = useState(false);
+
+    // Temp ID is preserved until user saves with it
+    const activeTempIdRef = useRef<string | null>(null);
+
     const canCreate = hasPermission("station", "create");
     const canUpdate = hasPermission("station", "update");
     const canView = hasPermission("station", "view");
 
-    const { register, handleSubmit, reset, watch, setValue, formState: { errors } } =
-        useForm<StationFormValues>({ resolver: zodResolver(stationSchema), defaultValues: initialValues });
+    const {
+        register,
+        handleSubmit,
+        reset,
+        watch,
+        setValue,
+        formState: { errors },
+    } = useForm<StationFormValues>({
+        resolver: zodResolver(stationSchema),
+        defaultValues: initialValues,
+    });
+
     const watchedId = watch("id");
     const debouncedId = useDebounce(watchedId, 500);
-    const isBootstrapping = isIdLoading && !nextId;
 
-    // Initial load
+    const isBootstrapping = isNetworkOnline && isIdLoading && !nextId;
+    const isCurrentTemp = isTempId(String(watchedId || nextId || ""));
+    const isNumericMode = isNetworkOnline && !isCurrentTemp;
+
+    const getOrCreateTempId = () => {
+        if (!activeTempIdRef.current) {
+            activeTempIdRef.current = generateTempId("station");
+        }
+        return activeTempIdRef.current;
+    };
+
+    // 1. Initial Data Load
     useEffect(() => {
-        dispatch(fetchStationNextId());
+        const offline = isOffline() || !navigator.onLine;
+        setIsNetworkOnline(!offline);
+
+        if (offline) {
+            const temp = getOrCreateTempId();
+            dispatch(setNextId(temp));
+            setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+        } else {
+            dispatch(fetchStationNextId())
+                .unwrap()
+                .then((res) => {
+                    const id = String(res.nextId);
+                    if (!isTempId(id)) {
+                        activeTempIdRef.current = null;
+                        dispatch(setNextId(id));
+                        setValue("id", id, { shouldValidate: true, shouldDirty: false });
+                    }
+                })
+                .catch(() => {
+                    const temp = getOrCreateTempId();
+                    dispatch(setNextId(temp));
+                    setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+                });
+        }
+
         dispatch(fetchAllStations({ page: 1, limit: 10 }));
-    }, [dispatch]);
+    }, [dispatch, setValue]);
 
-    console.log("StationPage render", { isNewMode, isEditing, watchedId, debouncedId, nextId, currentRecord });
-
-    // New mode mein nextId aane par field update karo (offline -> temp, online -> real)
+    // 2. Redux nextId watcher for new mode
     useEffect(() => {
-        if (isNewMode && nextId) {
+        if (isNewMode && nextId && !isTempId(nextId) && isNetworkOnline) {
+            activeTempIdRef.current = null;
             setValue("id", String(nextId), { shouldValidate: true, shouldDirty: false });
         }
-    }, [isNewMode, nextId, setValue]);
+    }, [nextId, isNewMode, isNetworkOnline, setValue]);
 
-    // Instant toggle on network changes without requiring refresh:
-    // Online -> immediately fetch real ID from server
-    // Offline -> immediately set temp ID
+    // 3. Network Events (Live instant switch without page refresh)
     useEffect(() => {
-        const handleOnline = () => {
-            if (isNewMode) {
-                dispatch(fetchStationNextId()).unwrap().then((res) => {
-                    setValue("id", res.nextId, { shouldValidate: true, shouldDirty: false });
-                }).catch(() => {});
+        const handleOnline = async () => {
+            setIsNetworkOnline(true);
+            setIsTransitioningOnline(true);
+
+            try {
+                await offlineSyncService.processQueue().catch(() => null);
+                await new Promise((resolve) => setTimeout(resolve, 300));
+
+                const nextRes = await dispatch(fetchStationNextId()).unwrap();
+                const serverId = String(nextRes.nextId);
+
+                if (serverId && !isTempId(serverId)) {
+                    dispatch(setNextId(serverId));
+                    activeTempIdRef.current = null;
+                    const curId = String(watch("id"));
+                    if (isNewMode || isTempId(curId)) {
+                        setValue("id", serverId, { shouldValidate: true, shouldDirty: false });
+                    }
+                }
+
+                void dispatch(fetchAllStations({ page: 1, limit: 10 }));
+                toast.success("Back online. Server ID loaded.", { id: "network-status" });
+            } catch (err) {
+                console.warn("Online reconnect error:", err);
+            } finally {
+                setIsTransitioningOnline(false);
             }
         };
+
         const handleOffline = () => {
-            if (isNewMode) {
-                const temp = generateTempId("station");
+            setIsNetworkOnline(false);
+            const curId = String(watch("id"));
+
+            if (isNewMode || isTempId(curId)) {
+                const temp = getOrCreateTempId();
                 dispatch(setNextId(temp));
                 setValue("id", temp, { shouldValidate: true, shouldDirty: false });
+                toast("Offline mode active: Using temporary ID", { id: "network-status", icon: "📡" });
+            } else {
+                toast("Internet connection lost. Working offline.", { id: "network-status", icon: "📡" });
             }
         };
+
         window.addEventListener("online", handleOnline);
         window.addEventListener("offline", handleOffline);
         return () => {
             window.removeEventListener("online", handleOnline);
             window.removeEventListener("offline", handleOffline);
         };
-    }, [isNewMode, dispatch, setValue]);
+    }, [isNewMode, dispatch, setValue, watch]);
 
-    // Reconcile background sync
+    // 4. Background Sync ID Reconciliation
     useEffect(() => {
         const handleReconciled = (event: Event) => {
             const detail = (event as CustomEvent<{ tempId: string; realId: string | number; resourceUrl: string }>).detail;
             if (!detail) return;
-            const { tempId, realId } = detail;
-            if (String(watch("id")) === String(tempId)) {
+            const { tempId, realId, resourceUrl } = detail;
+            if (resourceUrl === STATIONS && String(watch("id")) === String(tempId)) {
                 setValue("id", String(realId), { shouldDirty: false });
             }
         };
+
         window.addEventListener("offline-id-reconciled", handleReconciled);
         return () => window.removeEventListener("offline-id-reconciled", handleReconciled);
     }, [setValue, watch]);
 
-    // View mode mein selected record aane par form reset
+    // 5. Populate form when a record is selected
     useEffect(() => {
-        if (!isNewMode && currentRecord) reset({ id: String(currentRecord.id), name: currentRecord.name });
+        if (!isNewMode && currentRecord) {
+            reset({ id: String(currentRecord.id), name: currentRecord.name });
+        }
     }, [currentRecord, isNewMode, reset]);
 
-    // FIX #1: debounce settle hone tak wait karo (stale debouncedId se bachao)
-    // FIX #2: new mode mein jis id ko hum khud set kar rahe hain usko lookup mat karo
+    // 6. Look up record when user types in the ID field
     useEffect(() => {
         if (String(watchedId) !== String(debouncedId)) return;
-        if (isNewMode && String(debouncedId) === String(nextId)) return;
-        if (!debouncedId || String(debouncedId) === String(nextId) || isTempId(debouncedId) || isIdLoading) return;
-        dispatch(fetchStationById(String(debouncedId))).unwrap().catch(() => setValue("name", ""));
-    }, [debouncedId, watchedId, isNewMode, dispatch, isIdLoading, nextId, setValue]);
+        const cleanId = String(debouncedId || "").trim();
 
-    // API error toast
+        if (!cleanId || cleanId === String(nextId) || isIdLoading) return;
+        if (!isNewMode && currentRecord && String(currentRecord.id) === cleanId) return;
+
+        // A. Temp ID: NEVER call GetByID API! Search offline/local storage only
+        if (isTempId(cleanId)) {
+            if (isNewMode && cleanId === activeTempIdRef.current) return;
+            const found = list.find((item) => String(item.id) === cleanId || String(item.tempId) === cleanId);
+            if (found) {
+                dispatch(setCurrentRecord(found));
+                dispatch(setNewMode(false));
+                dispatch(setEditing(false));
+            } else {
+                const fallback = activeTempIdRef.current || String(nextId || "");
+                setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+            }
+            return;
+        }
+
+        // B. Numeric ID in Offline mode: Search offline list only
+        if (!isNetworkOnline) {
+            const found = list.find((item) => String(item.id) === cleanId);
+            if (found) {
+                dispatch(setCurrentRecord(found));
+                dispatch(setNewMode(false));
+                dispatch(setEditing(false));
+            } else {
+                const fallback = activeTempIdRef.current || String(nextId || "");
+                setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+            }
+            return;
+        }
+
+        // C. Numeric ID in Online mode: Call API via slice thunk
+        dispatch(fetchStationById(cleanId))
+            .unwrap()
+            .catch(() => {
+                dispatch(clearApiError());
+                setValue("id", String(nextId || ""), { shouldValidate: true, shouldDirty: false });
+            });
+    }, [debouncedId, watchedId, nextId, isNetworkOnline, isNewMode, currentRecord, isIdLoading, list, dispatch, setValue]);
+
+    // 7. Error toast
     useEffect(() => {
-        if (apiError) { toast.error(apiError); dispatch(clearApiError()); }
+        if (apiError) {
+            toast.error(apiError);
+            dispatch(clearApiError());
+        }
     }, [apiError, dispatch]);
 
+    // 8. Submit (Create / Update)
     const onSubmit = handleSubmit(async (data) => {
         if (!isEditing) {
             toast.error("Click Edit first to modify");
             return;
         }
         try {
-            if (isNewMode) await dispatch(createStation({ name: data.name, id: String(data.id ?? "") })).unwrap();
-            else await dispatch(updateStation({ id: String(data.id ?? ""), name: data.name })).unwrap();
-            toast.success("Saved successfully");
-            const next = await dispatch(fetchStationNextId()).unwrap();
-            dispatch(setNewMode(true));
-            dispatch(setEditing(true));
-            reset({ id: next.nextId, name: "" });
-            dispatch(fetchAllStations({ page: 1, limit: 10 }));
-        } catch { /* apiError toast via effect */ }
+            if (isNewMode) {
+                const result = await dispatch(createStation({ name: data.name, id: String(data.id ?? "") })).unwrap();
+                activeTempIdRef.current = null;
+                toast.success(result._offline ? "Saved offline. It will sync when online." : "Saved successfully");
+
+                if (result._offline) {
+                    dispatch(setCurrentRecord(result.data));
+                    dispatch(setNewMode(false));
+                    dispatch(setEditing(false));
+                } else {
+                    const next = await dispatch(fetchStationNextId()).unwrap();
+                    dispatch(setNewMode(true));
+                    dispatch(setEditing(true));
+                    reset({ id: String(next.nextId), name: "" });
+                }
+                dispatch(fetchAllStations({ page: 1, limit: 10 }));
+            } else {
+                const result = await dispatch(updateStation({ id: String(data.id ?? ""), name: data.name })).unwrap();
+                activeTempIdRef.current = null;
+                toast.success(result._offline ? "Updated offline. It will sync when online." : "Saved successfully");
+
+                if (result._offline) {
+                    dispatch(setCurrentRecord(result.data));
+                    dispatch(setEditing(false));
+                } else {
+                    const next = await dispatch(fetchStationNextId()).unwrap();
+                    dispatch(setNewMode(true));
+                    dispatch(setEditing(true));
+                    reset({ id: String(next.nextId), name: "" });
+                }
+                dispatch(fetchAllStations({ page: 1, limit: 10 }));
+            }
+        } catch {
+            /* error handled in effect */
+        }
     });
 
-    // FIX #3: nextId already ho to API dobara mat maaro (5-7 sec delay khatam)
+    // 9. New Entry
     const handleNew = async () => {
-        if (isNewMode && (watchedId || nextId)) {
-            dispatch(setEditing(true));
-            reset({ id: String(watchedId || nextId), name: "" });
-            return;
-        }
-        if (nextId) {
+        if (!isNetworkOnline) {
+            if (isNewMode && activeTempIdRef.current) {
+                dispatch(setEditing(true));
+                reset({ id: activeTempIdRef.current, name: "" });
+                return;
+            }
+            const temp = generateTempId("station");
+            activeTempIdRef.current = temp;
             dispatch(setCurrentRecord(null));
             dispatch(setNewMode(true));
+            dispatch(setEditing(true));
+            dispatch(setNextId(temp));
+            reset({ id: temp, name: "" });
+            return;
+        }
+
+        if (isNewMode && nextId && !isTempId(nextId)) {
             dispatch(setEditing(true));
             reset({ id: String(nextId), name: "" });
             return;
         }
+
         try {
             const next = await dispatch(fetchStationNextId()).unwrap();
+            activeTempIdRef.current = null;
+            dispatch(setCurrentRecord(null));
             dispatch(setNewMode(true));
             dispatch(setEditing(true));
-            reset({ id: next.nextId, name: "" });
-        } catch { /* apiError via effect */ }
+            reset({ id: String(next.nextId), name: "" });
+        } catch {
+            /* error handled in effect */
+        }
     };
 
     const handleViewAll = () => {
@@ -196,15 +361,21 @@ export default function StationPage() {
         <section className="mx-auto w-full max-w-[500px] rounded-xl bg-white p-4 shadow-lg sm:mt-10 sm:max-w-3xl sm:p-6">
             {/* Header — stacks on mobile */}
             <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">
-                    Stations
-                </h1>
+                <div className="flex items-center gap-2">
+                    <h1 className="text-xl font-semibold text-zinc-900 sm:text-2xl">Stations</h1>
+                    {!isNetworkOnline && (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Offline
+                        </span>
+                    )}
+                </div>
                 <div className="flex w-full gap-2 sm:w-auto">
                     <Button
                         type="button"
                         variant="secondary"
                         onClick={handleNew}
-                        disabled={!canCreate}
+                        disabled={!canCreate || isBootstrapping || isTransitioningOnline}
                         className="flex-1 sm:flex-none"
                     >
                         New
@@ -213,7 +384,7 @@ export default function StationPage() {
                         type="button"
                         variant="outline"
                         onClick={handleViewAll}
-                        disabled={!canView}
+                        disabled={!canView || isTransitioningOnline}
                         className="flex-1 sm:flex-none"
                     >
                         View All
@@ -221,36 +392,46 @@ export default function StationPage() {
                 </div>
             </div>
 
-            <form onSubmit={onSubmit} className="space-y-4">
-                <div className="relative space-y-4">
-                    <LabeledField
-                        label="ID"
-                        type={isTempId(String(watchedId || nextId || "")) ? "text" : "number"}
-                        {...register("id", { valueAsNumber: false })}
-                        value={isNewMode ? String(watchedId || nextId || "") : undefined}
-                        onChange={(e) => {
-                            setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
-                        }}
-                        min={1}
-                        loading={isBootstrapping}
-                        error={errors.id?.message}
-                        disabled={isIdLoading || isBootstrapping}
-                    />
-                    <LabeledField
-                        label="Name"
-                        type="text"
-                        {...register("name")}
-                        error={errors.name?.message}
-                        disabled={!isEditing}
-                    />
-                    {isLookingUp && <LoadingOverlay text="Loading station..." />}
-                </div>
+            <form onSubmit={onSubmit} className="relative space-y-4">
+                <LabeledField
+                    label="ID"
+                    type={isNumericMode ? "number" : "text"}
+                    min={isNumericMode ? 1 : undefined}
+                    {...register("id", { valueAsNumber: false })}
+                    value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                    onChange={(e) => {
+                        setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
+                    }}
+                    onBlur={() => {
+                        if (!watchedId || !String(watchedId).trim()) {
+                            const fallback = !isNetworkOnline
+                                ? (activeTempIdRef.current || String(nextId || ""))
+                                : String(nextId || "");
+                            setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
+                        }
+                    }}
+                    loading={isBootstrapping || isLookingUp || isTransitioningOnline}
+                    error={errors.id?.message}
+                    disabled={isIdLoading || isLookingUp || isTransitioningOnline}
+                />
+
+                <LabeledField
+                    label="Name"
+                    type="text"
+                    {...register("name")}
+                    error={errors.name?.message}
+                    disabled={!isEditing || isTransitioningOnline}
+                />
+
+                {(isLookingUp || isTransitioningOnline) && (
+                    <LoadingOverlay text={isTransitioningOnline ? "Syncing and loading server ID..." : "Loading station..."} />
+                )}
 
                 {/* Action buttons — full-width stack on mobile */}
                 <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                         type="submit"
-                        disabled={!isEditing || isSubmitting || (isNewMode ? !canCreate : !canUpdate)}
+                        disabled={!isEditing || isSubmitting || isTransitioningOnline || (isNewMode ? !canCreate : !canUpdate)}
                         isLoading={isSubmitting}
                         className="w-full sm:w-auto"
                     >
@@ -260,7 +441,7 @@ export default function StationPage() {
                         type="button"
                         variant="secondary"
                         onClick={() => dispatch(setEditing(true))}
-                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate}
+                        disabled={isSubmitting || isNewMode || isEditing || !canUpdate || isTransitioningOnline}
                         className="w-full sm:w-auto"
                     >
                         Edit
