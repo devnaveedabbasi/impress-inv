@@ -91,6 +91,7 @@ export default function DealerPage() {
     const [isViewAllOpen, setIsViewAllOpen] = useState(false);
     const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => !isOffline());
     const [isTransitioningOnline, setIsTransitioningOnline] = useState(false);
+    const [isFetchingNew, setIsFetchingNew] = useState(false);
 
     // Temp ID is preserved until user saves (PUT/POST) with it
     const activeTempIdRef = useRef<string | null>(null);
@@ -120,7 +121,8 @@ export default function DealerPage() {
     );
     const citiesStatus = useAppSelector((s) => s.city.listStatus);
 
-    const isBootstrapping = isNetworkOnline && isIdLoading && !nextId;
+    const isIdBusy = isIdLoading || isFetchingNew;
+    const isBootstrapping = isNetworkOnline && isIdBusy && !nextId;
     const isCurrentTemp = isTempId(String(watchedId || nextId || ""));
     // Input type: "number" when mode is online and not holding a temp ID, otherwise "text"
     const isNumericMode = isNetworkOnline && !isCurrentTemp;
@@ -402,22 +404,23 @@ export default function DealerPage() {
             return;
         }
 
-        // Online mode:
-        if (isNewMode && nextId && !isTempId(nextId)) {
-            dispatch(setEditing(true));
-            reset({ ...initialValues, id: String(nextId) });
-            return;
-        }
+        // Online mode: immediately clear inputs and show loading state
+        setIsFetchingNew(true);
+        dispatch(setCurrentRecord(null));
+        dispatch(setNewMode(true));
+        dispatch(setEditing(true));
+        reset(initialValues);
 
         try {
             const next = await dispatch(fetchDealerNextId()).unwrap();
             activeTempIdRef.current = null;
-            dispatch(setCurrentRecord(null));
-            dispatch(setNewMode(true));
-            dispatch(setEditing(true));
-            reset({ ...initialValues, id: String(next.nextId) });
+            const newId = String(next.nextId);
+            dispatch(setNextId(newId));
+            reset({ ...initialValues, id: newId });
         } catch {
             /* error handled in effect */
+        } finally {
+            setIsFetchingNew(false);
         }
     };
 
@@ -456,7 +459,7 @@ export default function DealerPage() {
                         type="button"
                         variant="secondary"
                         onClick={handleNew}
-                        disabled={!canCreate || isBootstrapping || isTransitioningOnline}
+                        disabled={!canCreate || isIdBusy || isTransitioningOnline}
                         className="flex-1 sm:flex-none"
                     >
                         New
@@ -489,8 +492,9 @@ export default function DealerPage() {
                         label="Dealer ID"
                         type={isNumericMode ? "number" : "text"}
                         min={isNumericMode ? 1 : undefined}
+                        placeholder={isIdBusy ? "Loading ID..." : undefined}
                         {...register("id", { valueAsNumber: false })}
-                        value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                        value={isNewMode ? (isIdBusy ? "" : String(watchedId || nextId || "")) : undefined}
                         onChange={(e) => {
                             setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
                         }}
@@ -502,9 +506,9 @@ export default function DealerPage() {
                                 setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
                             }
                         }}
-                        loading={isBootstrapping || isLookingUp || isTransitioningOnline}
+                        loading={isIdBusy || isLookingUp || isTransitioningOnline}
                         error={errors.id?.message}
-                        disabled={isIdLoading || isLookingUp || isTransitioningOnline}
+                        disabled={isIdBusy || isLookingUp || isTransitioningOnline}
                     />
 
                     <LabeledField

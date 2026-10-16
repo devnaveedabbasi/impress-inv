@@ -71,6 +71,7 @@ export default function CityPage() {
     const [isViewAllOpen, setIsViewAllOpen] = useState(false);
     const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(() => !isOffline());
     const [isTransitioningOnline, setIsTransitioningOnline] = useState(false);
+    const [isFetchingNew, setIsFetchingNew] = useState(false);
 
     // Temp ID is preserved until user saves with it
     const activeTempIdRef = useRef<string | null>(null);
@@ -95,7 +96,8 @@ export default function CityPage() {
     const watchedProvinceId = watch("provinceId");
     const debouncedId = useDebounce(watchedId, 500);
 
-    const isBootstrapping = isNetworkOnline && isIdLoading && !nextId;
+    const isIdBusy = isIdLoading || isFetchingNew;
+    const isBootstrapping = isNetworkOnline && isIdBusy && !nextId;
     const isCurrentTemp = isTempId(String(watchedId || nextId || ""));
     const isNumericMode = isNetworkOnline && !isCurrentTemp;
 
@@ -343,21 +345,23 @@ export default function CityPage() {
             return;
         }
 
-        if (isNewMode && nextId && !isTempId(nextId)) {
-            dispatch(setEditing(true));
-            reset({ id: String(nextId), name: "", provinceId: "" });
-            return;
-        }
+        // Online mode: immediately clear inputs and show loading state
+        setIsFetchingNew(true);
+        dispatch(setCurrentRecord(null));
+        dispatch(setNewMode(true));
+        dispatch(setEditing(true));
+        reset({ id: "", name: "", provinceId: "" });
 
         try {
             const next = await dispatch(fetchCityNextId()).unwrap();
             activeTempIdRef.current = null;
-            dispatch(setCurrentRecord(null));
-            dispatch(setNewMode(true));
-            dispatch(setEditing(true));
-            reset({ id: String(next.nextId), name: "", provinceId: "" });
+            const newId = String(next.nextId);
+            dispatch(setNextId(newId));
+            reset({ id: newId, name: "", provinceId: "" });
         } catch {
             /* error handled in effect */
+        } finally {
+            setIsFetchingNew(false);
         }
     };
 
@@ -390,7 +394,7 @@ export default function CityPage() {
                         type="button"
                         variant="secondary"
                         onClick={handleNew}
-                        disabled={!canCreate || isBootstrapping || isTransitioningOnline}
+                        disabled={!canCreate || isIdBusy || isTransitioningOnline}
                         className="flex-1 sm:flex-none"
                     >
                         New
@@ -412,8 +416,9 @@ export default function CityPage() {
                     label="ID"
                     type={isNumericMode ? "number" : "text"}
                     min={isNumericMode ? 1 : undefined}
+                    placeholder={isIdBusy ? "Loading ID..." : undefined}
                     {...register("id", { valueAsNumber: false })}
-                    value={isNewMode ? String(watchedId || nextId || "") : undefined}
+                    value={isNewMode ? (isIdBusy ? "" : String(watchedId || nextId || "")) : undefined}
                     onChange={(e) => {
                         setValue("id", e.target.value, { shouldValidate: true, shouldDirty: true });
                     }}
@@ -425,9 +430,9 @@ export default function CityPage() {
                             setValue("id", fallback, { shouldValidate: true, shouldDirty: false });
                         }
                     }}
-                    loading={isBootstrapping || isLookingUp || isTransitioningOnline}
+                    loading={isIdBusy || isLookingUp || isTransitioningOnline}
                     error={errors.id?.message}
-                    disabled={isIdLoading || isLookingUp || isTransitioningOnline}
+                    disabled={isIdBusy || isLookingUp || isTransitioningOnline}
                 />
 
                 <LabeledField
