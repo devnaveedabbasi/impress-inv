@@ -163,7 +163,6 @@ export default function StationPage() {
                 }
 
                 void dispatch(fetchAllStations({ page: 1, limit: 10 }));
-                toast.success("Back online. Server ID loaded.", { id: "network-status" });
             } catch (err) {
                 console.warn("Online reconnect error:", err);
             } finally {
@@ -179,9 +178,6 @@ export default function StationPage() {
                 const temp = getOrCreateTempId();
                 dispatch(setNextId(temp));
                 setValue("id", temp, { shouldValidate: true, shouldDirty: false });
-                toast("Offline mode active: Using temporary ID", { id: "network-status", icon: "📡" });
-            } else {
-                toast("Internet connection lost. Working offline.", { id: "network-status", icon: "📡" });
             }
         };
 

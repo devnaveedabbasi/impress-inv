@@ -23,7 +23,7 @@ export function OfflineSyncManager() {
 
     // Handle online event
     const handleOnline = async () => {
-      toast.success("Network restored! Checking offline queue...", { id: "network-status", duration: 3000 });
+      toast.success("Internet connection restored. Syncing data...", { id: "network-status", duration: 3000 });
       const currentQueue = await offlineSyncService.getQueue();
       if (currentQueue.length > 0) {
         const toastId = "syncing-offline-actions";

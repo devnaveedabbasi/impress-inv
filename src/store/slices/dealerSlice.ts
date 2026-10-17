@@ -44,7 +44,7 @@ const initialState: DealerState = {
     nextId: "",
     isNewMode: true,
     isEditing: true,
-    isIdLoading: true,
+    isIdLoading: false,
     isSubmitting: false,
     isLookingUp: false,
     currentRecord: null,

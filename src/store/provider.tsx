@@ -6,7 +6,7 @@ import { store } from "@/store";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { OfflineSyncManager } from "@/components/OfflineSyncManager";
 import { offlineSyncService } from "@/lib/offlineSyncService";
-import { CATEGORIES, CITIES, DEALERS, PROVINCES, STATIONS } from "@/utils/apiRoutes";
+import { CATEGORIES, CITIES, DEALERS, DEPARTMENTS, INVENTORY, PROVINCES, STATIONS, VENDORS } from "@/utils/apiRoutes";
 import {
   categorySlice,
   fetchAllCategories,
@@ -28,10 +28,25 @@ import {
   fetchStationNextId,
 } from "@/store/slices/stationSlice";
 import {
+  departmentSlice,
+  fetchAllDepartments,
+  fetchDepartmentNextId,
+} from "@/store/slices/departmentSlice";
+import {
   fetchAllDealers,
   fetchDealerNextId,
   dealerSlice,
 } from "@/store/slices/dealerSlice";
+import {
+  fetchAllVendors,
+  fetchVendorNextId,
+  vendorSlice,
+} from "@/store/slices/vendorSlice";
+import {
+  fetchAllInventories,
+  fetchInventoryNextId,
+  inventorySlice,
+} from "@/store/slices/inventorySlice";
 
 function registerReconciliationListener() {
   const onReconciled = (event: Event) => {
@@ -40,60 +55,79 @@ function registerReconciliationListener() {
 
     if (detail.resourceUrl === CATEGORIES) {
       store.dispatch(categorySlice.actions.setReconciledId(detail));
+      store.dispatch(inventorySlice.actions.setReconciledId(detail));
     }
 
     if (detail.resourceUrl === PROVINCES) {
       store.dispatch(provinceSlice.actions.setReconciledId(detail));
       store.dispatch(citySlice.actions.setReconciledProvinceId(detail));
-      // dealers that point to a province created offline
       store.dispatch(dealerSlice.actions.setReconciledProvinceId(detail));
+      store.dispatch(vendorSlice.actions.setReconciledId(detail));
     }
 
     if (detail.resourceUrl === CITIES) {
       store.dispatch(citySlice.actions.setReconciledId(detail));
-      // dealers that point to a city created offline
       store.dispatch(dealerSlice.actions.setReconciledCityId(detail));
+      store.dispatch(vendorSlice.actions.setReconciledId(detail));
     }
 
     if (detail.resourceUrl === STATIONS) {
       store.dispatch(stationSlice.actions.setReconciledId(detail));
+      store.dispatch(inventorySlice.actions.setReconciledId(detail));
+    }
+
+    if (detail.resourceUrl === DEPARTMENTS) {
+      store.dispatch(departmentSlice.actions.setReconciledId(detail));
+      store.dispatch(inventorySlice.actions.setReconciledId(detail));
     }
 
     if (detail.resourceUrl === DEALERS) {
       store.dispatch(dealerSlice.actions.setReconciledId(detail));
     }
+
+    if (detail.resourceUrl === VENDORS) {
+      store.dispatch(vendorSlice.actions.setReconciledId(detail));
+    }
+
+    if (detail.resourceUrl === INVENTORY) {
+      store.dispatch(inventorySlice.actions.setReconciledId(detail));
+    }
   };
 
   const refreshLists = () => {
-    // Use the SAME limits as the pages (provinces 100, cities 500). With limit 10 the
-    // dropdowns would only show 10 rows after the network comes back.
     store.dispatch(fetchAllCategories({ page: 1, limit: 10 }));
     store.dispatch(fetchAllProvinces({ page: 1, limit: 100 }));
     store.dispatch(fetchAllCities({ page: 1, limit: 500 }));
-    store.dispatch(fetchAllStations({ page: 1, limit: 10 }));
+    store.dispatch(fetchAllStations({ page: 1, limit: 100 }));
+    store.dispatch(fetchAllDepartments({ page: 1, limit: 100 }));
     store.dispatch(fetchAllDealers({ page: 1, limit: 10 }));
+    store.dispatch(fetchAllVendors({ page: 1, limit: 10 }));
+    store.dispatch(fetchAllInventories({ page: 1, limit: 10 }));
   };
 
   const onOnline = () => {
-    // Sync first, THEN refresh lists and fetch real next IDs from server
     void offlineSyncService.processQueue().finally(() => {
       refreshLists();
       store.dispatch(fetchCategoryNextId());
       store.dispatch(fetchProvinceNextId());
       store.dispatch(fetchCityNextId());
       store.dispatch(fetchStationNextId());
+      store.dispatch(fetchDepartmentNextId());
       store.dispatch(fetchDealerNextId());
+      store.dispatch(fetchVendorNextId());
+      store.dispatch(fetchInventoryNextId());
     });
   };
 
   const onOffline = () => {
-    // Prime a usable temp ID immediately on the offline transition.
-    // The master-entry form effects reset their IDs from these values.
     store.dispatch(fetchCategoryNextId());
     store.dispatch(fetchProvinceNextId());
     store.dispatch(fetchCityNextId());
     store.dispatch(fetchStationNextId());
+    store.dispatch(fetchDepartmentNextId());
     store.dispatch(fetchDealerNextId());
+    store.dispatch(fetchVendorNextId());
+    store.dispatch(fetchInventoryNextId());
   };
 
   window.addEventListener("offline-id-reconciled", onReconciled);
